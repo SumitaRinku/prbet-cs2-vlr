@@ -1,0 +1,86 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>个人中心 - PRBET</title>
+    <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
+    <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header class="hero compact">
+        <nav>
+            <a class="brand-logo" href="/" aria-label="PRBET 首页"><img src="/images/prbetlogo.png" alt="PRBET"></a>
+            <div class="site-nav">
+                <a href="/">比赛竞猜</a>
+                <a href="/tournaments.html">赛事回看</a>
+                <a href="/leaderboard.html">排行榜</a>
+                <a class="active" href="/profile.html">个人中心</a>
+            </div>
+            <div id="userPanel"></div>
+        </nav>
+        <section>
+            <p class="eyebrow">Profile</p>
+            <h1>个人中心</h1>
+            <p>查看你的竞猜统计、历史预测、赛果和得分情况。</p>
+        </section>
+    </header>
+
+    <main class="page-shell profile-page">
+        <section id="loginRequired" class="panel empty-state" hidden>
+            <h3>请先登录</h3>
+            <p>登录后可以查看自己的全部预测记录和积分统计。</p>
+        </section>
+
+        <section id="profileContent" hidden>
+            <div class="profile-summary panel">
+                <div>
+                    <p class="eyebrow">Account</p>
+                    <h2 id="profileName">-</h2>
+                    <p id="profileRole">-</p>
+                </div>
+                <div class="profile-stats">
+                    <span><b id="statTotal">0</b>总预测</span>
+                    <span><b id="statSettled">0</b>已结算</span>
+                    <span><b id="statPoints">0</b>总积分</span>
+                    <span><b id="statRate">0%</b>得分率</span>
+                </div>
+            </div>
+
+            <section class="panel">
+                <div class="section-head"><h2>修改密码</h2></div>
+                <div class="form-grid">
+                    <input id="oldPassword" type="password" placeholder="原密码" autocomplete="current-password">
+                    <input id="newPassword" type="password" placeholder="新密码（至少6位）" autocomplete="new-password">
+                    <input id="newPasswordConfirm" type="password" placeholder="确认新密码" autocomplete="new-password">
+                    <button onclick="changePassword()">保存新密码</button>
+                </div>
+            </section>
+
+            <section class="panel profile-records">
+                <div class="section-head">
+                    <h2>我的预测记录</h2>
+                    <select id="profileStatus" onchange="renderPredictions()">
+                        <option value="">全部记录</option>
+                        <option value="finished">已结算</option>
+                        <option value="pending">未结算</option>
+                        <option value="scored">已得分</option>
+                        <option value="missed">未得分</option>
+                    </select>
+                </div>
+                <div id="predictionList" class="prediction-list"></div>
+            </section>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="icp-info">
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">豫ICP备XXXXXXXX号</a>
+        </div>
+    </footer>
+
+    <script src="/js/shared.js"></script>
+    <script src="/js/profile.js"></script>
+</body>
+</html>

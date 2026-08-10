@@ -1,0 +1,67 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>排行榜 - PRBET</title>
+    <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
+    <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header class="hero compact">
+        <nav>
+            <a class="brand-logo" href="/" aria-label="PRBET 首页"><img src="/images/prbetlogo.png" alt="PRBET"></a>
+            <div class="site-nav">
+                <a href="/">比赛竞猜</a>
+                <a href="/tournaments.html">赛事回看</a>
+                <a class="active" href="/leaderboard.html">排行榜</a>
+                <a href="/profile.html">个人中心</a>
+            </div>
+            <div id="userPanel"></div>
+        </nav>
+        <section>
+            <p class="eyebrow">Leaderboard</p>
+            <h1>竞猜积分排名</h1>
+            <p>查看全站积分榜，也可以按赛事筛选排名。</p>
+        </section>
+    </header>
+
+    <main class="page-shell leaderboard-page">
+        <div class="filters-bar panel">
+            <select id="gameFilter" onchange="setGame(this.value)">
+                <option value="cs2">CS2</option>
+                <option value="valorant">Valorant</option>
+                <option value="">全部游戏</option>
+            </select>
+            <select id="tournamentFilter" onchange="loadLeaderboard()">
+                <option value="">总排行榜</option>
+            </select>
+        </div>
+        <section class="panel">
+            <div class="section-head">
+                <h2 id="boardTitle">总排行榜</h2>
+                <span class="score-rule">胜负正确 +1，比分完全正确 BO1/BO3 +2，BO5 +3</span>
+            </div>
+            <ol id="leaderboardFull" class="leaderboard-full"></ol>
+        </section>
+    </main>
+
+    <div id="detailModal" class="modal" hidden>
+        <div class="modal-backdrop" onclick="closeDetailModal()"></div>
+        <section class="modal-panel">
+            <button class="modal-close" onclick="closeDetailModal()">×</button>
+            <div id="detailModalBody"></div>
+        </section>
+    </div>
+
+    <footer class="site-footer">
+        <div class="icp-info">
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">豫ICP备XXXXXXXX号</a>
+        </div>
+    </footer>
+
+    <script src="/js/shared.js"></script>
+    <script src="/js/leaderboard-page.js"></script>
+</body>
+</html>

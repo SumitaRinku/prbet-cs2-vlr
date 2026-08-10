@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PRG 管理后台</title>
+    <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
+    <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header class="hero compact">
+        <nav>
+            <a class="brand-logo" href="/" aria-label="PRBET 首页"><img src="/images/prbetlogo.png" alt="PRBET"></a>
+            <div id="auth"></div>
+        </nav>
+        <section>
+            <p class="eyebrow">Admin Console</p>
+            <h1>赛事同步与全站管理</h1>
+            <p>管理 CS2 / Valorant 赛事、队伍、比赛、用户和预测结算。</p>
+        </section>
+    </header>
+
+    <main class="admin-shell">
+        <div class="admin-toolbar panel">
+            <div>
+                <label>游戏筛选</label>
+                <select id="gameFilter" onchange="setGame(this.value)">
+                    <option value="">全部</option>
+                    <option value="cs2">CS2</option>
+                    <option value="valorant">Valorant</option>
+                </select>
+            </div>
+            <button onclick="syncNow()">同步 PandaScore</button>
+            <a class="button ghost" href="/">返回首页</a>
+        </div>
+
+        <section class="panel">
+            <h2>系统统计</h2>
+            <div id="stats" class="stats"></div>
+            <pre id="sync"></pre>
+            <pre id="syncResult"></pre>
+        </section>
+
+        <nav class="tabs">
+            <button class="active" onclick="showTab('matches', this)">比赛</button>
+            <button onclick="showTab('tournaments', this)">赛事</button>
+            <button onclick="showTab('teams', this)">队伍</button>
+            <button onclick="showTab('users', this)">用户</button>
+            <button onclick="showTab('predictions', this)">预测记录</button>
+        </nav>
+
+        <section id="tab-matches" class="panel admin-tab active">
+            <div class="section-head"><h2>比赛管理</h2><button onclick="createMatch()">新增比赛</button></div>
+            <div class="admin-subtitle">新增比赛</div>
+            <div class="form-grid">
+                <select id="matchTournament"></select>
+                <select id="matchTeam1"></select>
+                <select id="matchTeam2"></select>
+                <select id="matchFormat"><option>BO1</option><option selected>BO3</option><option>BO5</option></select>
+                <input id="matchTime" type="datetime-local">
+                <input id="matchName" placeholder="比赛备注/阶段">
+            </div>
+            <div class="admin-subtitle">筛选比赛</div>
+            <div class="form-grid admin-filter-bar">
+                <select id="filterMatchTournament" onchange="applyAdminFilters()"><option value="">全部赛事</option></select>
+                <select id="filterMatchStatus" onchange="applyAdminFilters()">
+                    <option value="">全部状态</option>
+                    <option value="upcoming">未开始</option>
+                    <option value="ongoing">进行中</option>
+                    <option value="finished">已结算</option>
+                    <option value="cancelled">已取消</option>
+                    <option value="postponed">已延期</option>
+                </select>
+                <select id="filterMatchBetting" onchange="applyAdminFilters()">
+                    <option value="">全部预测状态</option>
+                    <option value="1">预测开启</option>
+                    <option value="0">预测关闭</option>
+                </select>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>ID</th><th>游戏</th><th>赛事</th><th>对阵</th><th>赛制</th><th>时间</th><th>状态</th><th>比分</th><th>操作</th></tr></thead><tbody id="matches"></tbody></table></div>
+        </section>
+
+        <section id="tab-tournaments" class="panel admin-tab">
+            <div class="section-head"><h2>赛事管理</h2><button onclick="createTournament()">新增赛事</button></div>
+            <div class="admin-subtitle">新增赛事</div>
+            <div class="form-grid">
+                <input id="tourName" placeholder="赛事名称">
+                <select id="tourGame"><option value="cs2">CS2</option><option value="valorant">Valorant</option></select>
+                <input id="tourBegin" type="date">
+                <input id="tourEnd" type="date">
+            </div>
+            <div class="admin-subtitle">筛选赛事</div>
+            <div class="form-grid admin-filter-bar">
+                <select id="filterTournamentActive" onchange="applyAdminFilters()">
+                    <option value="">全部启用状态</option>
+                    <option value="1">已启用</option>
+                    <option value="0">已禁用</option>
+                </select>
+                <select id="filterTournamentSource" onchange="applyAdminFilters()">
+                    <option value="">全部来源</option>
+                    <option value="pandascore">PandaScore</option>
+                    <option value="manual">手动创建</option>
+                </select>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>ID</th><th>名称</th><th>游戏</th><th>状态</th><th>开始</th><th>结束</th><th>比赛数</th><th>来源</th><th>操作</th></tr></thead><tbody id="tournaments"></tbody></table></div>
+        </section>
+
+        <section id="tab-teams" class="panel admin-tab">
+            <div class="section-head"><h2>队伍管理</h2><button onclick="createTeam()">新增队伍</button></div>
+            <div class="admin-subtitle">新增队伍</div>
+            <div class="form-grid">
+                <input id="teamName" placeholder="队伍名称">
+                <select id="teamGame"><option value="cs2">CS2</option><option value="valorant">Valorant</option></select>
+                <input id="teamShort" placeholder="简称">
+                <input id="teamLogo" placeholder="Logo URL">
+                <input id="teamCountry" placeholder="国家/地区">
+            </div>
+            <div class="admin-subtitle">筛选队伍</div>
+            <div class="form-grid admin-filter-bar">
+                <input id="filterTeamKeyword" placeholder="搜索队伍名称" oninput="applyAdminFilters()">
+                <select id="filterTeamSource" onchange="applyAdminFilters()">
+                    <option value="">全部来源</option>
+                    <option value="pandascore">PandaScore</option>
+                    <option value="manual">手动创建</option>
+                </select>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>ID</th><th>队伍</th><th>游戏</th><th>简称</th><th>国家</th><th>来源</th><th>操作</th></tr></thead><tbody id="teams"></tbody></table></div>
+        </section>
+
+        <section id="tab-users" class="panel admin-tab">
+            <div class="section-head"><h2>用户管理</h2><button onclick="createUser()">新增用户</button></div>
+            <div class="admin-subtitle">新增用户</div>
+            <div class="form-grid">
+                <input id="newUsername" placeholder="用户名">
+                <input id="newPassword" placeholder="密码" type="password">
+                <select id="newRole"><option value="user">用户</option><option value="admin">管理员</option></select>
+            </div>
+            <div class="admin-subtitle">筛选用户</div>
+            <div class="form-grid admin-filter-bar">
+                <input id="filterUserKeyword" placeholder="搜索用户名" oninput="applyAdminFilters()">
+                <select id="filterUserRole" onchange="applyAdminFilters()">
+                    <option value="">全部角色</option>
+                    <option value="user">用户</option>
+                    <option value="admin">管理员</option>
+                </select>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>积分</th><th>预测数</th><th>注册时间</th><th>操作</th></tr></thead><tbody id="users"></tbody></table></div>
+        </section>
+
+        <section id="tab-predictions" class="panel admin-tab">
+            <div class="section-head"><h2>预测记录</h2></div>
+            <div class="admin-subtitle">筛选预测</div>
+            <div class="form-grid admin-filter-bar">
+                <input id="filterPredictionKeyword" placeholder="搜索用户或队伍" oninput="applyAdminFilters()">
+                <select id="filterPredictionStatus" onchange="applyAdminFilters()">
+                    <option value="">全部结算状态</option>
+                    <option value="finished">已结算</option>
+                    <option value="pending">未结算</option>
+                </select>
+            </div>
+            <div class="table-wrap"><table><thead><tr><th>ID</th><th>用户</th><th>比赛</th><th>预测</th><th>状态</th><th>得分</th><th>提交时间</th><th>操作</th></tr></thead><tbody id="predictions"></tbody></table></div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="icp-info">
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">豫ICP备XXXXXXXX号</a>
+        </div>
+    </footer>
+
+    <script src="/js/admin.js"></script>
+</body>
+</html>

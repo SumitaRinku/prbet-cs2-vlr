@@ -1,0 +1,32 @@
+{
+  "name": "prg-cs2-bet-new",
+  "version": "1.0.0",
+  "description": "PRG CS2 match prediction site with PandaScore sync",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "init-db": "node server/config/init-db.js",
+    "migrate": "node server/config/init-db.js",
+    "cleanup:pandascore-duplicates": "node scripts/cleanup-pandascore-duplicates.js",
+    "sync:pandascore": "node -e \"require('dotenv').config(); require('./server/config/init-db').ensureDatabase(); require('./server/services/pandascoreService').syncPandascoreMatches('cli').then(r=>{console.log(r); process.exit(0);}).catch(e=>{console.error(e); process.exit(1);})\""
+  },
+  "keywords": [
+    "cs2",
+    "pandascore",
+    "prediction",
+    "esports"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.9.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
