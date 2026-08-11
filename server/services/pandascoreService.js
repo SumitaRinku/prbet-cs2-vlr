@@ -300,9 +300,14 @@ function upsertMatch(match, now) {
 
     const status = statusOf(match);
     const format = formatOf(match);
-    const team1Score = !hasTbd && status === 'finished' && process.env.PANDASCORE_SYNC_RESULTS !== 'false' ? scoreFor(match, team1.external_id) : null;
-    const team2Score = !hasTbd && status === 'finished' && process.env.PANDASCORE_SYNC_RESULTS !== 'false' ? scoreFor(match, team2.external_id) : null;
     const winnerId = hasTbd ? null : (String(match.winner_id || '') === String(team1.external_id) ? team1Id : String(match.winner_id || '') === String(team2.external_id) ? team2Id : null);
+    // PandaScore 的弃权局：status=canceled 且有胜者（对手弃权）。按 1-0 记录、标记弃权、
+    // 视作已结束以便结算（calculatePoints 对 is_forfeit 返回 0，故不计入积分）。
+    const isForfeit = status === 'cancelled' && !hasTbd && winnerId !== null;
+    const effectiveStatus = isForfeit ? 'finished' : status;
+    const syncResults = !hasTbd && status === 'finished' && process.env.PANDASCORE_SYNC_RESULTS !== 'false';
+    const team1Score = isForfeit ? (winnerId === team1Id ? 1 : 0) : (syncResults ? scoreFor(match, team1.external_id) : null);
+    const team2Score = isForfeit ? (winnerId === team2Id ? 1 : 0) : (syncResults ? scoreFor(match, team2.external_id) : null);
     const stage = stageFromMatch(match);
     const matchTime = iso(match.scheduled_at || match.begin_at) || now;
     const externalId = `${gameType}:${match.id}`;
@@ -318,7 +323,7 @@ function upsertMatch(match, now) {
         const wasTbd = !!db.prepare("SELECT 1 FROM teams WHERE id IN (?, ?) AND name = 'TBD' LIMIT 1")
             .get(existing.team1_id, existing.team2_id);
         let bettingEnabled;
-        if (!canBet || status !== 'upcoming') {
+        if (!canBet || effectiveStatus !== 'upcoming') {
             bettingEnabled = 0; // TBD、赛事非活跃或已开赛/结束：一律关闭
         } else if (wasTbd) {
             bettingEnabled = 1; // 从 TBD 转为确定对阵：重新开放下注
@@ -326,20 +331,20 @@ function upsertMatch(match, now) {
             bettingEnabled = existing.betting_enabled; // 常规确定比赛：沿用现值，尊重管理员手动开关
         }
         db.prepare(`
-            UPDATE matches SET tournament_id = ?, team1_id = ?, team2_id = ?, name = ?, format = ?, match_time = ?, status = ?, raw_status = ?,
+            UPDATE matches SET tournament_id = ?, team1_id = ?, team2_id = ?, name = ?, format = ?, match_time = ?, status = ?, is_forfeit = ?, raw_status = ?,
                 stage_name = ?, stage_slug = ?, stage_external_id = ?,
                 team1_score = COALESCE(?, team1_score), team2_score = COALESCE(?, team2_score), winner_team_id = COALESCE(?, winner_team_id),
                 betting_enabled = ?, last_synced_at = ?
             WHERE id = ?
-        `).run(tournamentId, team1Id, team2Id, match.name || null, format, matchTime, status, match.status || null, stage.name, stage.slug, stage.external_id, team1Score, team2Score, winnerId, bettingEnabled, now, existing.id);
-        return { id: existing.id, finished: !wasFinished && status === 'finished', settle: status === 'finished' };
+        `).run(tournamentId, team1Id, team2Id, match.name || null, format, matchTime, effectiveStatus, isForfeit ? 1 : 0, match.status || null, stage.name, stage.slug, stage.external_id, team1Score, team2Score, winnerId, bettingEnabled, now, existing.id);
+        return { id: existing.id, finished: !wasFinished && effectiveStatus === 'finished', settle: effectiveStatus === 'finished' };
     }
 
     const inserted = db.prepare(`
-        INSERT INTO matches (tournament_id, team1_id, team2_id, name, format, match_time, status, raw_status, stage_name, stage_slug, stage_external_id, team1_score, team2_score, winner_team_id, betting_enabled, external_source, external_id, last_synced_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(tournamentId, team1Id, team2Id, match.name || null, format, matchTime, status, match.status || null, stage.name, stage.slug, stage.external_id, team1Score, team2Score, winnerId, canBet && status === 'upcoming' ? 1 : 0, SOURCE, externalId, now);
-    return { id: inserted.lastInsertRowid, finished: status === 'finished', settle: status === 'finished' };
+        INSERT INTO matches (tournament_id, team1_id, team2_id, name, format, match_time, status, is_forfeit, raw_status, stage_name, stage_slug, stage_external_id, team1_score, team2_score, winner_team_id, betting_enabled, external_source, external_id, last_synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(tournamentId, team1Id, team2Id, match.name || null, format, matchTime, effectiveStatus, isForfeit ? 1 : 0, match.status || null, stage.name, stage.slug, stage.external_id, team1Score, team2Score, winnerId, canBet && effectiveStatus === 'upcoming' ? 1 : 0, SOURCE, externalId, now);
+    return { id: inserted.lastInsertRowid, finished: effectiveStatus === 'finished', settle: effectiveStatus === 'finished' };
 }
 
 async function syncPandascoreMatches(mode = 'manual') {

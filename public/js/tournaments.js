@@ -54,6 +54,7 @@ function escapeHtml(value) {
 }
 
 function statusText(match) {
+    if (match.is_forfeit) return '弃权';
     if (match.status === 'finished') return '已结算';
     if (match.status === 'ongoing') return '进行中';
     if (match.status === 'cancelled') return '已取消';
@@ -87,7 +88,7 @@ function matchRow(match) {
     return `<article class="archive-match-v2 tournament-match-row ${clickable ? 'clickable' : ''}" id="match-row-${match.id}" data-match-id="${match.id}" ${clickable ? `onclick="showMatchPredictions(${match.id})"` : ''}>
         <div class="archive-match-main">
             <div class="archive-match-info">
-                <span class="archive-status ${match.status}">${statusText(match)}</span>
+                <span class="archive-status ${match.is_forfeit ? 'forfeit' : match.status}">${statusText(match)}</span>
                 <strong>${escapeHtml(title)}</strong>
                 <small>${formatDateTime(match.match_time)}</small>
             </div>
@@ -278,6 +279,7 @@ async function showMatchPredictions(matchId) {
                 <span class="game-pill ${match.game_type || ''}">${match.game_type === 'valorant' ? 'Valorant' : 'CS2'}</span>
                 <h2>${escapeHtml(match.team1_name)} ${match.team1_score}-${match.team2_score} ${escapeHtml(match.team2_name)}</h2>
                 <p>${escapeHtml(match.tournament_name)} · ${escapeHtml(match.name || '常规赛程')} · ${formatDateTime(match.match_time)}</p>
+                ${match.is_forfeit ? '<p class="forfeit-banner">本场因弃权按 1-0 判定，所有预测均不计入积分。</p>' : ''}
             </div>
             <ol class="detail-list">${data.predictions.map(predictionDetailRow).join('') || '<li class="empty-state">暂无预测</li>'}</ol>
         `;

@@ -5,6 +5,7 @@ function escapeHtml(value) {
 }
 
 function predictionStatus(prediction) {
+    if (prediction.match_is_forfeit) return '<span class="record-status forfeit">弃权不计分</span>';
     if (prediction.match_status !== 'finished') return '<span class="record-status pending">待结算</span>';
     if ((prediction.points_earned || 0) > 0) return '<span class="record-status correct">已得分</span>';
     return '<span class="record-status wrong">未得分</span>';
@@ -39,7 +40,7 @@ function predictionCard(prediction) {
             <span>${escapeHtml(prediction.match_name || '常规赛程')}</span>
             <span>${formatDateTime(prediction.match_time)}</span>
             <span>预测胜者：${escapeHtml(prediction.predicted_winner_name)}</span>
-            <b>${prediction.points_earned === null ? '待结算' : `+${prediction.points_earned} 分`}</b>
+            <b>${prediction.match_is_forfeit ? '弃权不计分' : prediction.points_earned === null ? '待结算' : `+${prediction.points_earned} 分`}</b>
         </div>
     </article>`;
 }
@@ -50,7 +51,8 @@ function filteredPredictions() {
     if (status === 'finished') return profileState.predictions.filter(p => p.match_status === 'finished');
     if (status === 'pending') return profileState.predictions.filter(p => p.match_status !== 'finished');
     if (status === 'scored') return profileState.predictions.filter(p => (p.points_earned || 0) > 0);
-    if (status === 'missed') return profileState.predictions.filter(p => p.match_status === 'finished' && (p.points_earned || 0) === 0);
+    if (status === 'missed') return profileState.predictions.filter(p => p.match_status === 'finished' && !p.match_is_forfeit && (p.points_earned || 0) === 0);
+    if (status === 'forfeit') return profileState.predictions.filter(p => p.match_is_forfeit);
     return profileState.predictions;
 }
 

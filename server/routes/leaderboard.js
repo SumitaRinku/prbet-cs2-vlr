@@ -13,11 +13,11 @@ router.get('/', (req, res) => {
     }
     const leaderboard = db.prepare(`
         SELECT u.id, u.username,
-            COALESCE(SUM(CASE WHEN m.status = 'finished' THEN p.points_earned ELSE 0 END), 0) total_score,
-            COUNT(CASE WHEN m.status = 'finished' THEN 1 END) prediction_count,
+            COALESCE(SUM(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN p.points_earned ELSE 0 END), 0) total_score,
+            COUNT(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN 1 END) prediction_count,
             COUNT(p.id) total_predictions,
-            CASE WHEN COUNT(CASE WHEN m.status = 'finished' THEN 1 END) > 0
-                THEN ROUND(100.0 * SUM(CASE WHEN p.points_earned > 0 THEN 1 ELSE 0 END) / COUNT(CASE WHEN m.status = 'finished' THEN 1 END), 1)
+            CASE WHEN COUNT(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN 1 END) > 0
+                THEN ROUND(100.0 * SUM(CASE WHEN p.points_earned > 0 THEN 1 ELSE 0 END) / COUNT(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN 1 END), 1)
                 ELSE 0 END success_rate
         FROM users u
         JOIN predictions p ON p.user_id = u.id
@@ -39,11 +39,11 @@ router.get('/tournament/:id', (req, res) => {
 
     const leaderboard = db.prepare(`
         SELECT u.id, u.username,
-            COALESCE(SUM(CASE WHEN m.status = 'finished' THEN p.points_earned ELSE 0 END), 0) total_score,
-            COUNT(CASE WHEN m.status = 'finished' THEN 1 END) prediction_count,
+            COALESCE(SUM(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN p.points_earned ELSE 0 END), 0) total_score,
+            COUNT(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN 1 END) prediction_count,
             COUNT(p.id) total_predictions,
-            CASE WHEN COUNT(CASE WHEN m.status = 'finished' THEN 1 END) > 0
-                THEN ROUND(100.0 * SUM(CASE WHEN p.points_earned > 0 THEN 1 ELSE 0 END) / COUNT(CASE WHEN m.status = 'finished' THEN 1 END), 1)
+            CASE WHEN COUNT(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN 1 END) > 0
+                THEN ROUND(100.0 * SUM(CASE WHEN p.points_earned > 0 THEN 1 ELSE 0 END) / COUNT(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN 1 END), 1)
                 ELSE 0 END success_rate
         FROM users u
         JOIN predictions p ON p.user_id = u.id
@@ -76,7 +76,7 @@ router.get('/users/:id/details', (req, res) => {
 
     const predictions = db.prepare(`
         SELECT p.id, p.predicted_team1_score, p.predicted_team2_score, p.points_earned,
-            m.id match_id, m.name match_name, m.match_time, m.team1_score, m.team2_score,
+            m.id match_id, m.name match_name, m.match_time, m.is_forfeit, m.team1_score, m.team2_score,
             tour.name tournament_name, tour.game_type,
             t1.name team1_name, t2.name team2_name, pw.name predicted_winner_name
         FROM predictions p
@@ -90,6 +90,7 @@ router.get('/users/:id/details', (req, res) => {
     `).all(...params);
 
     const summary = predictions.reduce((total, row) => {
+        if (row.is_forfeit) return total; // 弃权不计入统计
         total.total_score += row.points_earned || 0;
         total.prediction_count++;
         if ((row.points_earned || 0) > 0) total.scored_count++;

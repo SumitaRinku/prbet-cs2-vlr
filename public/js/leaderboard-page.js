@@ -79,6 +79,14 @@ function closeDetailModal() {
 }
 
 function userDetailRow(prediction) {
+    if (prediction.is_forfeit) {
+        return `<li class="detail-row user-detail forfeit">
+            <strong class="detail-title">${escapeHtml(prediction.tournament_name)}</strong>
+            <span class="detail-match">${escapeHtml(prediction.team1_name)} ${prediction.team1_score}-${prediction.team2_score} ${escapeHtml(prediction.team2_name)}</span>
+            <span class="detail-pick">预测 ${prediction.predicted_team1_score}-${prediction.predicted_team2_score} / ${escapeHtml(prediction.predicted_winner_name)}</span>
+            <b class="detail-points">弃权不计分</b>
+        </li>`;
+    }
     const points = prediction.points_earned ?? 0;
     const cls = points > 0 ? 'correct' : 'wrong';
     return `<li class="detail-row user-detail ${cls}">

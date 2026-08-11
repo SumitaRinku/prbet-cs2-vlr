@@ -559,3 +559,11 @@ html,body{max-width:100%;overflow-x:hidden}
 .home-bracket-stage-title{margin:0 0 8px;font-size:.9rem;color:var(--text-secondary);font-weight:800}
 .match-row-highlight{animation:homeMatchFlash 1.8s ease-out}
 @keyframes homeMatchFlash{0%{box-shadow:0 0 0 3px rgba(49,93,244,.55)}100%{box-shadow:0 0 0 3px rgba(49,93,244,0)}}
+/* 弃权标记：琥珀色，区别于已结算(灰)/进行中(红)/开放(蓝) */
+.match-forfeit{border-color:rgba(245,158,11,.45)!important}
+.match-status.match-forfeit{background:rgba(245,158,11,.16);color:#b45309}
+.user-prediction.forfeit{background:rgba(245,158,11,.12);color:#b45309}
+.record-status.forfeit{background:rgba(245,158,11,.14);color:#b45309}
+.archive-status.forfeit{background:rgba(245,158,11,.16);color:#b45309}
+.detail-row.forfeit{background:rgba(245,158,11,.06)}
+.forfeit-banner{margin:8px 0 0;padding:8px 12px;border-radius:10px;background:rgba(245,158,11,.12);color:#b45309;font-size:.85rem;font-weight:700}

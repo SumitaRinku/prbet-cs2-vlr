@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.get('/my', authenticateToken, (req, res) => {
     const predictions = db.prepare(`
-        SELECT p.*, m.format, m.name match_name, m.match_time, m.status match_status, m.team1_score actual_team1_score, m.team2_score actual_team2_score,
+        SELECT p.*, m.format, m.name match_name, m.match_time, m.status match_status, m.is_forfeit match_is_forfeit, m.team1_score actual_team1_score, m.team2_score actual_team2_score,
             t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url,
             t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url,
             pw.name predicted_winner_name, tour.name tournament_name, tour.game_type
@@ -22,7 +22,7 @@ router.get('/my', authenticateToken, (req, res) => {
 
     const stats = db.prepare(`
         SELECT COUNT(*) total,
-            SUM(CASE WHEN m.status = 'finished' THEN 1 ELSE 0 END) settled,
+            SUM(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN 1 ELSE 0 END) settled,
             SUM(COALESCE(p.points_earned, 0)) points,
             SUM(CASE WHEN p.points_earned > 0 THEN 1 ELSE 0 END) correct
         FROM predictions p JOIN matches m ON m.id = p.match_id

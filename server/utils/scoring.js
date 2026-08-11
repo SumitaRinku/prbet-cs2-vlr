@@ -18,6 +18,11 @@ function calculatePoints(prediction, match) {
         return null;
     }
 
+    // 弃权局按 1-0 记录但不计入积分：所有预测一律 0 分（已结算、不挂起）。
+    if (match.is_forfeit) {
+        return 0;
+    }
+
     // 胜者以 winner_team_id 为准；缺失时才回退到比分比较，平局不判胜者
     let actualWinner = match.winner_team_id ?? null;
     if (actualWinner === null) {

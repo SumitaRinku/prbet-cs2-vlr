@@ -222,8 +222,8 @@ function renderStats(data) {
 
 function renderMatches(rows) {
     matches.innerHTML = rows.map(m => `<tr>
-        <td data-label="ID">${m.id}</td><td data-label="游戏">${escapeHtml(m.game_type)}</td><td data-label="赛事">${escapeHtml(m.tournament_name)}</td><td data-label="对阵">${escapeHtml(m.team1_name)} vs ${escapeHtml(m.team2_name)}</td><td data-label="赛制">${escapeHtml(m.format)}</td><td data-label="时间">${fmt(m.match_time)}</td><td data-label="状态">${escapeHtml(m.status)}</td><td data-label="比分">${m.team1_score ?? ''}-${m.team2_score ?? ''}</td>
-        <td data-label="操作" class="actions">${actionButton(m.betting_enabled ? '关预测' : '开预测', `toggleBetting(${m.id})`)}${actionButton('录赛果', `setResult(${m.id})`)}${actionButton('编辑', `editMatch(${m.id})`)}${actionButton('删除', `deleteMatch(${m.id})`, true)}</td>
+        <td data-label="ID">${m.id}</td><td data-label="游戏">${escapeHtml(m.game_type)}</td><td data-label="赛事">${escapeHtml(m.tournament_name)}</td><td data-label="对阵">${escapeHtml(m.team1_name)} vs ${escapeHtml(m.team2_name)}</td><td data-label="赛制">${escapeHtml(m.format)}</td><td data-label="时间">${fmt(m.match_time)}</td><td data-label="状态">${m.is_forfeit ? '弃权' : escapeHtml(m.status)}</td><td data-label="比分">${m.team1_score ?? ''}-${m.team2_score ?? ''}</td>
+        <td data-label="操作" class="actions">${actionButton(m.betting_enabled ? '关预测' : '开预测', `toggleBetting(${m.id})`)}${actionButton('录赛果', `setResult(${m.id})`)}${actionButton('设弃权', `setForfeit(${m.id})`)}${actionButton('编辑', `editMatch(${m.id})`)}${actionButton('删除', `deleteMatch(${m.id})`, true)}</td>
     </tr>`).join('');
 }
 
@@ -250,7 +250,7 @@ function renderUsers(rows) {
 
 function renderPredictions(rows) {
     predictions.innerHTML = rows.map(p => `<tr>
-        <td data-label="ID">${p.id}</td><td data-label="用户">${escapeHtml(p.username)}</td><td data-label="比赛">${escapeHtml(p.team1_name)} vs ${escapeHtml(p.team2_name)}</td><td data-label="预测">${p.predicted_team1_score}-${p.predicted_team2_score} / ${escapeHtml(p.predicted_winner_name)}</td><td data-label="状态">${escapeHtml(p.match_status)}</td><td data-label="得分">${p.points_earned ?? '未结算'}</td><td data-label="提交时间">${fmt(p.created_at)}</td>
+        <td data-label="ID">${p.id}</td><td data-label="用户">${escapeHtml(p.username)}</td><td data-label="比赛">${escapeHtml(p.team1_name)} vs ${escapeHtml(p.team2_name)}</td><td data-label="预测">${p.predicted_team1_score}-${p.predicted_team2_score} / ${escapeHtml(p.predicted_winner_name)}</td><td data-label="状态">${p.match_is_forfeit ? '弃权' : escapeHtml(p.match_status)}</td><td data-label="得分">${p.match_is_forfeit ? '弃权不计分' : (p.points_earned ?? '未结算')}</td><td data-label="提交时间">${fmt(p.created_at)}</td>
         <td data-label="操作" class="actions">${actionButton('删除', `deletePrediction(${p.id})`, true)}</td>
     </tr>`).join('');
 }
@@ -331,6 +331,16 @@ async function setResult(id) {
     await loadAdmin();
 }
 
+async function setForfeit(id) {
+    const row = state.matches.find(item => item.id === id);
+    if (!row) { alert('比赛不存在，请刷新'); return; }
+    const choice = prompt(`弃权判定：胜方是哪支队伍？\n1 = ${row.team1_name}\n2 = ${row.team2_name}`);
+    if (choice !== '1' && choice !== '2') { if (choice !== null) alert('请输入 1 或 2'); return; }
+    const winnerTeamId = choice === '1' ? row.team1_id : row.team2_id;
+    await api(`/admin/matches/${id}/forfeit`, { method: 'PUT', body: { winner_team_id: winnerTeamId } });
+    await loadAdmin();
+}
+
 async function toggleBetting(id) {
     await api(`/admin/matches/${id}/betting`, { method: 'PUT' });
     await loadAdmin();
@@ -383,7 +393,7 @@ function withErrorAlert(fn) {
     };
 }
 
-const adminActions = { login, logout, syncNow, createTournament, editTournament, toggleTournament, deleteTournament, createTeam, editTeam, deleteTeam, createMatch, editMatch, setResult, toggleBetting, deleteMatch, createUser, toggleRole, resetPassword, deleteUser, deletePrediction };
+const adminActions = { login, logout, syncNow, createTournament, editTournament, toggleTournament, deleteTournament, createTeam, editTeam, deleteTeam, createMatch, editMatch, setResult, setForfeit, toggleBetting, deleteMatch, createUser, toggleRole, resetPassword, deleteUser, deletePrediction };
 for (const key of Object.keys(adminActions)) adminActions[key] = withErrorAlert(adminActions[key]);
 
 Object.assign(window, adminActions, { showTab, setGame, applyAdminFilters });

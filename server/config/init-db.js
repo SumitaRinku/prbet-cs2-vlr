@@ -1,6 +1,7 @@
 ﻿const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const db = require('./database');
+const { settleMatch, recalculateUserScores } = require('../utils/settlement');
 
 function ensureDatabase() {
     db.exec(`
@@ -130,6 +131,39 @@ function ensureDatabase() {
     if (!matchColumns.includes('stage_external_id')) {
         db.exec('ALTER TABLE matches ADD COLUMN stage_external_id TEXT');
     }
+    if (!matchColumns.includes('is_forfeit')) {
+        // 弃权标记：PandaScore 对弃权局返回 canceled + winner_id，按 1-0 记录但不计入积分。
+        db.exec('ALTER TABLE matches ADD COLUMN is_forfeit INTEGER NOT NULL DEFAULT 0');
+    }
+
+    // 历史弃权局回填：旧逻辑把 PandaScore 的 canceled+winner 弃权局只记成 cancelled、
+    // 无比分且不结算，预测一直挂着。这些比赛早已超出同步回看窗口（仅回看 1 天），
+    // 常规同步不会再触及，因此在这里一次性修正为「弃权 1-0、status=finished、不计分」。
+    // 幂等：修正后 is_forfeit=1，不再命中 WHERE 条件，重复启动无副作用。
+    const forfeitCandidates = db.prepare(`
+        SELECT id FROM matches
+        WHERE is_forfeit = 0 AND status = 'cancelled' AND winner_team_id IS NOT NULL
+    `).all();
+    if (forfeitCandidates.length) {
+        const markForfeit = db.transaction(() => {
+            const update = db.prepare(`
+                UPDATE matches
+                SET is_forfeit = 1, status = 'finished',
+                    team1_score = CASE WHEN winner_team_id = team1_id THEN 1 ELSE 0 END,
+                    team2_score = CASE WHEN winner_team_id = team2_id THEN 1 ELSE 0 END,
+                    betting_enabled = 0
+                WHERE id = ?
+            `);
+            for (const row of forfeitCandidates) {
+                update.run(row.id);
+                settleMatch(row.id); // calculatePoints 对 is_forfeit 返回 0，预测结算为 0 分
+            }
+            recalculateUserScores();
+        });
+        markForfeit();
+        console.log(`[init-db] 回填 ${forfeitCandidates.length} 场弃权比赛为弃权 1-0（不计分）`);
+    }
+
     const adminUsername = process.env.ADMIN_USERNAME || 'admin';
     const admin = db.prepare('SELECT id FROM users WHERE username = ?').get(adminUsername);
     if (!admin) {

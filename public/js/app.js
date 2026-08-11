@@ -102,6 +102,12 @@ window.logoHtml = logo;
 
 function cardState(match, prediction) {
     const started = new Date(match.match_time) <= new Date();
+    if (match.is_forfeit) return {
+        className: 'match-forfeit',
+        label: '弃权',
+        phase: '对手弃权',
+        hint: '本场因弃权按 1-0 判定，已结算但不计入积分。'
+    };
     if (match.status === 'finished') return {
         className: 'match-finished',
         label: '已结算',
@@ -172,7 +178,7 @@ function matchCard(match) {
     const stateInfo = cardState(match, prediction);
     const team1Winner = isFinished && match.team1_score > match.team2_score;
     const team2Winner = isFinished && match.team2_score > match.team1_score;
-    const predictionClass = prediction ? (prediction.points_earned > 0 ? 'correct' : prediction.points_earned === 0 ? 'wrong' : 'pending') : '';
+    const predictionClass = prediction ? (match.is_forfeit ? 'forfeit' : prediction.points_earned > 0 ? 'correct' : prediction.points_earned === 0 ? 'wrong' : 'pending') : '';
     return `
         <article id="home-match-${match.id}" class="match-card ${stateInfo.className} ${match.game_type || ''} ${isFinished ? 'clickable' : ''}" ${isFinished ? `onclick="showMatchPredictions(${match.id})"` : ''}>
             <div class="match-header">
@@ -200,7 +206,7 @@ function matchCard(match) {
                 </div>
             </div>
             <div class="match-footer"><span>${escapeHtml(match.name || '常规赛程')}</span><span>${match.prediction_count || 0} 人预测</span></div>
-            ${prediction ? `<div class="user-prediction ${predictionClass}"><strong>我的预测</strong><span>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>${prediction.points_earned !== null ? `<b>+${prediction.points_earned} 分</b>` : '<b>待结算</b>'}</div>` : ''}
+            ${prediction ? `<div class="user-prediction ${predictionClass}"><strong>我的预测</strong><span>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>${match.is_forfeit ? '<b>弃权不计分</b>' : prediction.points_earned !== null ? `<b>+${prediction.points_earned} 分</b>` : '<b>待结算</b>'}</div>` : ''}
             ${isFinished ? '<div class="detail-hint">点击查看所有人的预测详情</div>' : ''}
             ${canPredict ? `<div class="prediction-form" onclick="event.stopPropagation()"><label>选择比分</label><div class="score-picks">${scoreButtons(match, prediction)}</div></div>` : ''}
         </article>`;
@@ -339,6 +345,7 @@ async function showMatchPredictions(matchId) {
                 <span class="game-pill ${match.game_type || ''}">${gameName(match.game_type)}</span>
                 <h2>${escapeHtml(match.team1_name)} ${match.team1_score}-${match.team2_score} ${escapeHtml(match.team2_name)}</h2>
                 <p>${escapeHtml(match.tournament_name)} · ${escapeHtml(match.name || '常规赛程')} · ${formatDateTime(match.match_time)}</p>
+                ${match.is_forfeit ? '<p class="forfeit-banner">本场因弃权按 1-0 判定，所有预测均不计入积分。</p>' : ''}
             </div>
             <ol class="detail-list">${data.predictions.map(predictionDetailRow).join('') || '<li class="empty-state">暂无预测</li>'}</ol>
         `;

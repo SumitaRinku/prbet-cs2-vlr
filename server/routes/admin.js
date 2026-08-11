@@ -265,6 +265,26 @@ router.put('/matches/:id/result', (req, res) => {
     res.json({ message: '赛果已保存', predictions_processed: predictions });
 });
 
+router.put('/matches/:id/forfeit', (req, res) => {
+    const match = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.id);
+    if (!match) return res.status(404).json({ error: '比赛不存在' });
+    const winnerId = Number(req.body.winner_team_id);
+    if (winnerId !== match.team1_id && winnerId !== match.team2_id) return res.status(400).json({ error: '无效的获胜队伍' });
+    const team1Score = winnerId === match.team1_id ? 1 : 0;
+    const team2Score = winnerId === match.team2_id ? 1 : 0;
+    const apply = db.transaction(() => {
+        // 弃权局：按 1-0 记录、标记弃权、置为已结束。calculatePoints 对 is_forfeit 返回 0，故不计分。
+        db.prepare(`
+            UPDATE matches SET is_forfeit = 1, status = 'finished', team1_score = ?, team2_score = ?, winner_team_id = ?, betting_enabled = 0 WHERE id = ?
+        `).run(team1Score, team2Score, winnerId, match.id);
+        const processed = settleMatch(match.id);
+        recalculateUserScores();
+        return processed;
+    });
+    const predictions = apply();
+    res.json({ message: '已标记为弃权', predictions_processed: predictions });
+});
+
 router.put('/matches/:id/betting', (req, res) => {
     const match = db.prepare('SELECT id, betting_enabled FROM matches WHERE id = ?').get(req.params.id);
     if (!match) return res.status(404).json({ error: '比赛不存在' });
@@ -282,7 +302,7 @@ router.delete('/matches/:id', (req, res) => {
 
 router.get('/predictions', (req, res) => {
     const predictions = db.prepare(`
-        SELECT p.*, u.username, m.match_time, m.status match_status, t1.name team1_name, t2.name team2_name, pw.name predicted_winner_name
+        SELECT p.*, u.username, m.match_time, m.status match_status, m.is_forfeit match_is_forfeit, t1.name team1_name, t2.name team2_name, pw.name predicted_winner_name
         FROM predictions p
         JOIN users u ON u.id = p.user_id
         JOIN matches m ON m.id = p.match_id
