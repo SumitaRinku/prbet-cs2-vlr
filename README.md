@@ -109,6 +109,8 @@ npm start
 | `ALLOWED_ORIGINS` | 全开 | CORS 白名单，逗号分隔；配置后只允许这些来源 |
 | `ADMIN_USERNAME` | `admin` | 默认管理员用户名 |
 | `ADMIN_PASSWORD` | 随机 | 留空则初始化时随机生成并打印一次 |
+| `ICP_NUMBER` | — | ICP 备案号，公开展示在 footer（服务端注入，生产必填，否则不显示） |
+| `ICP_LINK` | `https://beian.miit.gov.cn/` | 备案号链接，默认工信部备案查询页 |
 | `PANDASCORE_API_TOKEN` | — | PandaScore API Token（必填，否则无法同步） |
 | `PANDASCORE_BASE_URL` | `https://api.pandascore.co` | PandaScore API 基址 |
 | `PANDASCORE_SYNC_ENABLED` | `true` | 是否启用定时同步（设 `false` 关闭） |
@@ -126,6 +128,7 @@ TRUST_PROXY=1
 NODE_ENV=production
 JWT_SECRET=请替换为随机长字符串
 ALLOWED_ORIGINS=https://your-domain.example
+ICP_NUMBER=豫ICP备XXXXXXXX号
 PANDASCORE_API_TOKEN=你的PandaScoreToken
 PANDASCORE_SYNC_ENABLED=true
 PANDASCORE_SYNC_INTERVAL_MS=300000

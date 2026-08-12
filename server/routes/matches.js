@@ -128,4 +128,86 @@ router.post('/:id/predictions', authenticateToken, (req, res) => {
     res.status(201).json({ message: '预测已提交' });
 });
 
+// 取消预测：开赛前可撤销已提交的预测。
+router.delete('/:id/predictions', authenticateToken, (req, res) => {
+    const match = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.id);
+    if (!match) return res.status(404).json({ error: '比赛不存在' });
+    if (match.status !== 'upcoming') return res.status(400).json({ error: '比赛已开始或已结束，无法取消预测' });
+    if (new Date(match.match_time) <= new Date()) return res.status(400).json({ error: '比赛已开始，无法取消预测' });
+    const result = db.prepare('DELETE FROM predictions WHERE user_id = ? AND match_id = ?').run(req.user.id, match.id);
+    if (result.changes === 0) return res.status(404).json({ error: '你尚未对该比赛做出预测' });
+    res.json({ message: '预测已取消' });
+});
+
+// 对阵历史 / 双方近期战绩：比赛详情弹窗展示两队近况与交手记录。
+router.get('/:id/head2head', (req, res) => {
+    const match = db.prepare(matchSelect('m.id = ?')).get(req.params.id);
+    if (!match) return res.status(404).json({ error: '比赛不存在' });
+
+    const recentFor = (teamId) => db.prepare(`
+        SELECT m.team1_id, m.team2_id, m.team1_score, m.team2_score, m.winner_team_id, m.match_time,
+            t1.short_name team1_short_name, t1.name team1_name,
+            t2.short_name team2_short_name, t2.name team2_name,
+            tour.name tournament_name
+        FROM matches m
+        JOIN teams t1 ON t1.id = m.team1_id
+        JOIN teams t2 ON t2.id = m.team2_id
+        JOIN tournaments tour ON tour.id = m.tournament_id
+        WHERE m.status = 'finished' AND m.is_forfeit = 0 AND m.id != ?
+            AND (m.team1_id = ? OR m.team2_id = ?)
+        ORDER BY m.match_time DESC
+        LIMIT 10
+    `).all(match.id, teamId, teamId).map(row => {
+        const isTeam1 = row.team1_id === teamId;
+        return {
+            match_time: row.match_time,
+            tournament_name: row.tournament_name,
+            opponent: isTeam1 ? (row.team2_short_name || row.team2_name) : (row.team1_short_name || row.team1_name),
+            result: row.winner_team_id === teamId ? 'W' : 'L',
+            score: isTeam1 ? `${row.team1_score}-${row.team2_score}` : `${row.team2_score}-${row.team1_score}`
+        };
+    });
+
+    const recordOf = (recent) => {
+        const wins = recent.filter(r => r.result === 'W').length;
+        const losses = recent.filter(r => r.result === 'L').length;
+        return { wins, losses, label: `${wins}W-${losses}L`, recent };
+    };
+
+    const h2hRows = db.prepare(`
+        SELECT m.team1_id, m.team2_id, m.team1_score, m.team2_score, m.winner_team_id, m.match_time,
+            tour.name tournament_name
+        FROM matches m
+        JOIN tournaments tour ON tour.id = m.tournament_id
+        WHERE m.status = 'finished' AND m.is_forfeit = 0 AND m.id != ?
+            AND ((m.team1_id = ? AND m.team2_id = ?) OR (m.team1_id = ? AND m.team2_id = ?))
+        ORDER BY m.match_time DESC
+        LIMIT 10
+    `).all(match.id, match.team1_id, match.team2_id, match.team2_id, match.team1_id);
+
+    const headToHead = h2hRows.map(row => {
+        const team1AtHome = row.team1_id === match.team1_id;
+        return {
+            team1_score: team1AtHome ? row.team1_score : row.team2_score,
+            team2_score: team1AtHome ? row.team2_score : row.team1_score,
+            winner: row.winner_team_id === match.team1_id ? 'team1' : (row.winner_team_id === match.team2_id ? 'team2' : null),
+            match_time: row.match_time,
+            tournament_name: row.tournament_name
+        };
+    });
+
+    res.json({
+        match: {
+            id: match.id,
+            team1_name: match.team1_short_name || match.team1_name,
+            team2_name: match.team2_short_name || match.team2_name,
+            match_time: match.match_time,
+            format: match.format
+        },
+        team1: recordOf(recentFor(match.team1_id)),
+        team2: recordOf(recentFor(match.team2_id)),
+        head_to_head: headToHead
+    });
+});
+
 module.exports = router;
