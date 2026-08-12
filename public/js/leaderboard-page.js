@@ -1,7 +1,8 @@
-﻿const state = {
+const state = {
     game: localStorage.getItem('gameFilter') || 'cs2',
     tournaments: [],
-    tournament: localStorage.getItem('leaderboardTournamentFilter') || ''
+    tournament: localStorage.getItem('leaderboardTournamentFilter') || '',
+    page: 1
 };
 
 const gameFilterEl = document.querySelector('#gameFilter');
@@ -15,6 +16,7 @@ if (gameFilterEl) gameFilterEl.value = state.game;
 
 function setGame(game) {
     state.game = game;
+    state.page = 1;
     localStorage.setItem('gameFilter', game);
     loadTournamentOptions().then(loadLeaderboard).catch(error => showLeaderboardError(error));
 }
@@ -61,11 +63,50 @@ async function loadLeaderboard() {
     const tournamentId = tournamentFilterEl.value;
     state.tournament = tournamentId;
     localStorage.setItem('leaderboardTournamentFilter', tournamentId);
+    const params = new URLSearchParams();
+    if (state.game && !tournamentId) params.set('game_type', state.game);
+    params.set('page', state.page);
+    params.set('page_size', 20);
     const data = tournamentId
-        ? await sharedApi(`/leaderboard/tournament/${tournamentId}`)
-        : await sharedApi(`/leaderboard${state.game ? `?game_type=${state.game}` : ''}`);
+        ? await sharedApi(`/leaderboard/tournament/${tournamentId}?${params}`)
+        : await sharedApi(`/leaderboard?${params}`);
     if (boardTitleEl) boardTitleEl.textContent = tournamentId ? `${data.tournament.name} 排行榜` : `${gameName(state.game)} 总排行榜`;
     leaderboardFullEl.innerHTML = data.leaderboard.map(row).join('') || '<li class="empty-state"><h3>暂无排行</h3><p>用户完成预测并结算后会出现在这里。</p></li>';
+    renderPagination(data);
+}
+
+function renderPagination(data) {
+    const el = document.querySelector('#pagination');
+    if (!el) return;
+    const totalPages = Math.max(1, Math.ceil((data.total || 0) / (data.page_size || 20)));
+    if (totalPages <= 1) { el.innerHTML = ''; return; }
+    el.innerHTML = `
+        <button ${data.page <= 1 ? 'disabled' : ''} onclick="goPage(${data.page - 1})">上一页</button>
+        <span>第 ${data.page} / ${totalPages} 页 · 共 ${data.total} 人</span>
+        <button ${data.page >= totalPages ? 'disabled' : ''} onclick="goPage(${data.page + 1})">下一页</button>
+    `;
+}
+
+function goPage(page) {
+    state.page = page;
+    loadLeaderboard().catch(error => showLeaderboardError(error));
+}
+
+function resetLeaderboard() {
+    state.page = 1;
+    loadLeaderboard().catch(error => showLeaderboardError(error));
+}
+
+function exportLeaderboard() {
+    const params = new URLSearchParams();
+    if (state.game && !state.tournament) params.set('game_type', state.game);
+    if (state.tournament) params.set('tournament_id', state.tournament);
+    const a = document.createElement('a');
+    a.href = `/api/leaderboard/export${params.toString() ? `?${params}` : ''}`;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
 }
 
 function showLeaderboardError(error) {
@@ -120,6 +161,9 @@ async function showUserDetails(userId) {
 
 window.setGame = setGame;
 window.loadLeaderboard = loadLeaderboard;
+window.goPage = goPage;
+window.resetLeaderboard = resetLeaderboard;
+window.exportLeaderboard = exportLeaderboard;
 window.showUserDetails = showUserDetails;
 window.closeDetailModal = closeDetailModal;
 loadTournamentOptions().then(loadLeaderboard).catch(error => showLeaderboardError(error));

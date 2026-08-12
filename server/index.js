@@ -1,5 +1,6 @@
 require('dotenv').config();
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const { ensureDatabase } = require('./config/init-db');
@@ -34,7 +35,6 @@ if (allowedOrigins.length) {
 }
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/matches', require('./routes/matches'));
@@ -45,8 +45,42 @@ app.use('/api/images', require('./routes/images'));
 app.use('/api/admin', require('./routes/admin'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
-app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, '../public/admin/index.html')));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../public/index.html')));
+
+// ICP 备案号：服务端把备案号注入 HTML footer。备案号来自 .env（已 gitignore），
+// 仓库中只保留 {{BEIAN}} 占位符，真实值不会进入 git 历史。
+const publicDir = path.join(__dirname, '../public');
+const escapeHtmlAttr = value => String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[char]));
+
+function beianHtml() {
+    const number = process.env.ICP_NUMBER;
+    if (!number) return ''; // 未配置时不输出，避免把占位符暴露给用户
+    const link = process.env.ICP_LINK || 'https://beian.miit.gov.cn/';
+    return `<a href="${escapeHtmlAttr(link)}" target="_blank" rel="noopener">${escapeHtmlAttr(number)}</a>`;
+}
+
+function serveHtml(file) {
+    return (req, res) => {
+        try {
+            const html = fs.readFileSync(path.join(publicDir, file), 'utf8');
+            res.send(html.replace('{{BEIAN}}', beianHtml()));
+        } catch (error) {
+            res.status(404).end();
+        }
+    };
+}
+
+// 显式 HTML 路由放在 express.static 之前，保证注入后的页面优先生效；
+// express.static 之后只负责 /js /css /images 等静态资源。
+app.get('/', serveHtml('index.html'));
+app.get('/tournaments.html', serveHtml('tournaments.html'));
+app.get('/leaderboard.html', serveHtml('leaderboard.html'));
+app.get('/profile.html', serveHtml('profile.html'));
+app.get('/admin', serveHtml('admin/index.html'));
+app.get('/admin/', serveHtml('admin/index.html'));
+app.use(express.static(publicDir));
+app.get('*', serveHtml('index.html'));
 
 app.use((error, req, res, next) => {
     console.error(error);

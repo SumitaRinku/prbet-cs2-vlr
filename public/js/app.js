@@ -171,14 +171,19 @@ function scoreButtons(match, prediction) {
 }
 
 function matchCard(match) {
-    const canPredict = state.user && match.status === 'upcoming' && match.betting_enabled && new Date(match.match_time) > new Date();
     const prediction = match.user_prediction;
+    const canPredict = state.user && match.status === 'upcoming' && match.betting_enabled && new Date(match.match_time) > new Date();
+    const canCancel = state.user && prediction && match.status === 'upcoming' && new Date(match.match_time) > new Date();
     const info = timeInfo(match.match_time);
     const isFinished = match.status === 'finished';
     const stateInfo = cardState(match, prediction);
     const team1Winner = isFinished && match.team1_score > match.team2_score;
     const team2Winner = isFinished && match.team2_score > match.team1_score;
     const predictionClass = prediction ? (match.is_forfeit ? 'forfeit' : prediction.points_earned > 0 ? 'correct' : prediction.points_earned === 0 ? 'wrong' : 'pending') : '';
+    const cancelHtml = canCancel ? `<button class="link-btn danger" onclick="event.stopPropagation(); cancelPrediction(${match.id})">取消预测</button>` : '';
+    const predictionFormHtml = canPredict
+        ? `<div class="prediction-form" onclick="event.stopPropagation()"><label>选择比分</label><div class="score-picks">${scoreButtons(match, prediction)}</div>${cancelHtml}</div>`
+        : (canCancel ? `<div class="prediction-form" onclick="event.stopPropagation()">${cancelHtml}</div>` : '');
     return `
         <article id="home-match-${match.id}" class="match-card ${stateInfo.className} ${match.game_type || ''} ${isFinished ? 'clickable' : ''}" ${isFinished ? `onclick="showMatchPredictions(${match.id})"` : ''}>
             <div class="match-header">
@@ -205,10 +210,10 @@ function matchCard(match) {
                     <div><strong>${escapeHtml(match.team2_short_name || match.team2_name)}</strong><small>${escapeHtml(match.team2_name)}</small></div>
                 </div>
             </div>
-            <div class="match-footer"><span>${escapeHtml(match.name || '常规赛程')}</span><span>${match.prediction_count || 0} 人预测</span></div>
+            <div class="match-footer"><span>${escapeHtml(match.name || '常规赛程')}</span><span>${match.prediction_count || 0} 人预测</span><button class="link-btn" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button></div>
             ${prediction ? `<div class="user-prediction ${predictionClass}"><strong>我的预测</strong><span>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>${match.is_forfeit ? '<b>弃权不计分</b>' : prediction.points_earned !== null ? `<b>+${prediction.points_earned} 分</b>` : '<b>待结算</b>'}</div>` : ''}
             ${isFinished ? '<div class="detail-hint">点击查看所有人的预测详情</div>' : ''}
-            ${canPredict ? `<div class="prediction-form" onclick="event.stopPropagation()"><label>选择比分</label><div class="score-picks">${scoreButtons(match, prediction)}</div></div>` : ''}
+            ${predictionFormHtml}
         </article>`;
 }
 
@@ -217,6 +222,62 @@ async function predict(matchId, s1, s2, winner) {
         await api(`/matches/${matchId}/predictions`, { method: 'POST', body: { predicted_team1_score: s1, predicted_team2_score: s2, predicted_winner_id: winner } });
         await loadMatches();
     } catch (error) { alert(error.message); }
+}
+
+async function cancelPrediction(matchId) {
+    try {
+        await api(`/matches/${matchId}/predictions`, { method: 'DELETE' });
+        await loadMatches();
+    } catch (error) { alert(error.message); }
+}
+
+function recentListHtml(items) {
+    if (!items.length) return '<li class="empty-state">暂无已结算比赛</li>';
+    return items.map(item => {
+        const cls = item.result === 'W' ? 'win' : 'loss';
+        return `<li class="detail-row h2h-row ${cls}">
+            <strong class="detail-title">${escapeHtml(item.opponent)}</strong>
+            <span class="detail-match">${escapeHtml(item.score)} ${item.result === 'W' ? '胜' : '负'}</span>
+            <span class="detail-pick">${escapeHtml(item.tournament_name || '')}</span>
+            <b class="detail-points">${formatDateTime(item.match_time)}</b>
+        </li>`;
+    }).join('');
+}
+
+async function showMatchHead2Head(matchId) {
+    if (!detailModalEl || !detailModalBodyEl) return;
+    try {
+        const data = await api(`/matches/${matchId}/head2head`);
+        const m = data.match;
+        const teamPanel = (team, name) => `
+            <div class="h2h-team">
+                <h4>${escapeHtml(name)} <span class="h2h-record">${escapeHtml(team.label)}</span></h4>
+                <ol class="detail-list">${recentListHtml(team.recent)}</ol>
+            </div>`;
+        const h2hRows = data.head_to_head.length
+            ? data.head_to_head.map(h => {
+                const cls = h.winner === 'team1' ? 'win' : 'loss';
+                return `<li class="detail-row h2h-row ${cls}">
+                    <strong class="detail-title">${escapeHtml(m.team1_name)} ${h.team1_score}-${h.team2_score} ${escapeHtml(m.team2_name)}</strong>
+                    <span class="detail-match">${escapeHtml(h.tournament_name || '')}</span>
+                    <b class="detail-points">${formatDateTime(h.match_time)}</b>
+                </li>`;
+            }).join('')
+            : '<li class="empty-state">两队暂无交手记录</li>';
+        detailModalBodyEl.innerHTML = `
+            <div class="modal-head">
+                <h2>${escapeHtml(m.team1_name)} vs ${escapeHtml(m.team2_name)}</h2>
+                <p>双方近期战绩与交手历史</p>
+            </div>
+            <div class="h2h-grid">${teamPanel(data.team1, m.team1_name)}${teamPanel(data.team2, m.team2_name)}</div>
+            <h3 class="h2h-subtitle">交手历史</h3>
+            <ol class="detail-list">${h2hRows}</ol>
+        `;
+        detailModalEl.hidden = false;
+        document.body.classList.add('modal-open');
+    } catch (error) {
+        alert(error.message);
+    }
 }
 
 async function loadMatches() {
@@ -365,6 +426,8 @@ window.login = login;
 window.register = register;
 window.logout = logout;
 window.predict = predict;
+window.cancelPrediction = cancelPrediction;
+window.showMatchHead2Head = showMatchHead2Head;
 window.setGame = setGame;
 window.setTournament = setTournament;
 window.showMatchPredictions = showMatchPredictions;

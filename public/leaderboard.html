@@ -34,9 +34,10 @@
                 <option value="valorant">Valorant</option>
                 <option value="">全部游戏</option>
             </select>
-            <select id="tournamentFilter" onchange="loadLeaderboard()">
+            <select id="tournamentFilter" onchange="resetLeaderboard()">
                 <option value="">总排行榜</option>
             </select>
+            <button class="ghost" onclick="exportLeaderboard()">导出 CSV</button>
         </div>
         <section class="panel">
             <div class="section-head">
@@ -44,6 +45,7 @@
                 <span class="score-rule">胜负正确 +1，比分完全正确 BO1/BO3 +2，BO5 +3</span>
             </div>
             <ol id="leaderboardFull" class="leaderboard-full"></ol>
+            <div id="pagination" class="pagination"></div>
         </section>
     </main>
 
@@ -57,7 +59,7 @@
 
     <footer class="site-footer">
         <div class="icp-info">
-            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">豫ICP备XXXXXXXX号</a>
+            {{BEIAN}}
         </div>
     </footer>
 
