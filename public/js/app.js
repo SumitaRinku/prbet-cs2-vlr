@@ -232,14 +232,14 @@ async function cancelPrediction(matchId) {
 }
 
 function recentListHtml(items) {
-    if (!items.length) return '<li class="empty-state">暂无已结算比赛</li>';
+    if (!items.length) return '<div class="h2h-empty">暂无已结算比赛</div>';
     return items.map(item => {
-        const cls = item.result === 'W' ? 'win' : 'loss';
-        return `<li class="detail-row h2h-row ${cls}">
-            <strong class="detail-title">${escapeHtml(item.opponent)}</strong>
-            <span class="detail-match">${escapeHtml(item.score)} ${item.result === 'W' ? '胜' : '负'}</span>
-            <span class="detail-pick">${escapeHtml(item.tournament_name || '')}</span>
-            <b class="detail-points">${formatDateTime(item.match_time)}</b>
+        const isWin = item.result === 'W';
+        return `<li class="h2h-form-row">
+            <span class="h2h-result ${isWin ? 'win' : 'loss'}">${isWin ? '胜' : '负'}</span>
+            <span class="h2h-opp">vs ${escapeHtml(item.opponent)}</span>
+            <span class="h2h-score">${escapeHtml(item.score)}</span>
+            <time class="h2h-date">${formatDateTime(item.match_time)}</time>
         </li>`;
     }).join('');
 }
@@ -249,29 +249,38 @@ async function showMatchHead2Head(matchId) {
     try {
         const data = await api(`/matches/${matchId}/head2head`);
         const m = data.match;
-        const teamPanel = (team, name) => `
-            <div class="h2h-team">
-                <h4>${escapeHtml(name)} <span class="h2h-record">${escapeHtml(team.label)}</span></h4>
-                <ol class="detail-list">${recentListHtml(team.recent)}</ol>
-            </div>`;
-        const h2hRows = data.head_to_head.length
+        const formPanel = (team, name) => `
+            <section class="h2h-panel">
+                <header class="h2h-panel-head">
+                    <span class="h2h-team-name">${escapeHtml(name)}</span>
+                    <span class="h2h-record">近10场 ${escapeHtml(team.label)}</span>
+                </header>
+                <ol class="h2h-form">${recentListHtml(team.recent)}</ol>
+            </section>`;
+        const h2hList = data.head_to_head.length
             ? data.head_to_head.map(h => {
-                const cls = h.winner === 'team1' ? 'win' : 'loss';
-                return `<li class="detail-row h2h-row ${cls}">
-                    <strong class="detail-title">${escapeHtml(m.team1_name)} ${h.team1_score}-${h.team2_score} ${escapeHtml(m.team2_name)}</strong>
-                    <span class="detail-match">${escapeHtml(h.tournament_name || '')}</span>
-                    <b class="detail-points">${formatDateTime(h.match_time)}</b>
+                const team1Won = h.winner === 'team1';
+                return `<li class="h2h-match-row">
+                    <span class="h2h-score-line">
+                        <b class="${team1Won ? 'win' : 'loss'}">${escapeHtml(m.team1_name)}</b>
+                        <span>${h.team1_score} - ${h.team2_score}</span>
+                        <b class="${team1Won ? 'loss' : 'win'}">${escapeHtml(m.team2_name)}</b>
+                    </span>
+                    <span class="h2h-tournament">${escapeHtml(h.tournament_name || '')}</span>
+                    <time class="h2h-match-date">${formatDateTime(h.match_time)}</time>
                 </li>`;
             }).join('')
-            : '<li class="empty-state">两队暂无交手记录</li>';
+            : '<div class="h2h-empty">两队暂无交手记录</div>';
         detailModalBodyEl.innerHTML = `
             <div class="modal-head">
                 <h2>${escapeHtml(m.team1_name)} vs ${escapeHtml(m.team2_name)}</h2>
                 <p>双方近期战绩与交手历史</p>
             </div>
-            <div class="h2h-grid">${teamPanel(data.team1, m.team1_name)}${teamPanel(data.team2, m.team2_name)}</div>
-            <h3 class="h2h-subtitle">交手历史</h3>
-            <ol class="detail-list">${h2hRows}</ol>
+            <div class="h2h-grid">${formPanel(data.team1, m.team1_name)}${formPanel(data.team2, m.team2_name)}</div>
+            <section class="h2h-panel h2h-h2h">
+                <header class="h2h-panel-head"><span class="h2h-team-name">交手历史</span></header>
+                <ol class="h2h-matches">${h2hList}</ol>
+            </section>
         `;
         detailModalEl.hidden = false;
         document.body.classList.add('modal-open');
