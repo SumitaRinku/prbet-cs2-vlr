@@ -42,6 +42,7 @@ app.use('/api/tournaments', require('./routes/tournaments'));
 app.use('/api/predictions', require('./routes/predictions'));
 app.use('/api/leaderboard', require('./routes/leaderboard'));
 app.use('/api/images', require('./routes/images'));
+app.use('/api/teams', require('./routes/teams'));
 app.use('/api/admin', require('./routes/admin'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
@@ -77,6 +78,7 @@ app.get('/', serveHtml('index.html'));
 app.get('/tournaments.html', serveHtml('tournaments.html'));
 app.get('/leaderboard.html', serveHtml('leaderboard.html'));
 app.get('/profile.html', serveHtml('profile.html'));
+app.get('/teams.html', serveHtml('teams.html'));
 app.get('/admin', serveHtml('admin/index.html'));
 app.get('/admin/', serveHtml('admin/index.html'));
 app.use(express.static(publicDir));

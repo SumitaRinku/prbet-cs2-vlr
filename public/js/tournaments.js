@@ -9,6 +9,7 @@ const gameFilterEl = document.querySelector('#gameFilter');
 const statusFilterEl = document.querySelector('#statusFilter');
 const viewModeToggleEl = document.querySelector('#viewModeToggle');
 const tournamentsEl = document.querySelector('#tournaments');
+const tournamentCountEl = document.querySelector('#tournamentCount');
 const detailModalEl = document.querySelector('#detailModal');
 const detailModalBodyEl = document.querySelector('#detailModalBody');
 
@@ -75,20 +76,24 @@ function teamBlock(match, side) {
     const shortName = match[`${prefix}_short_name`] || name;
     const logo = match[`${prefix}_logo_url`];
     const won = match.status === 'finished' && ((side === 1 && match.team1_score > match.team2_score) || (side === 2 && match.team2_score > match.team1_score));
-    return `<div class="archive-team ${won ? 'winner' : ''}">
+    const tbd = name === 'TBD';
+    const tag = tbd ? 'div' : 'a';
+    const href = tbd ? '' : ` href="/teams.html?team=${match[`${prefix}_id`]}" onclick="event.stopPropagation()"`;
+    return `<${tag} class="archive-team team-link ${won ? 'winner' : ''} ${tbd ? 'tbd-team' : ''}"${href}>
         ${logoHtml(logo)}
         <div><strong>${escapeHtml(shortName)}</strong><small>${escapeHtml(name)}</small></div>
-    </div>`;
+    </${tag}>`;
 }
 
 
 function matchRow(match) {
     const clickable = match.status === 'finished';
+    const tbd = isTbdMatch(match);
     const title = match.name || '常规赛程';
-    return `<article class="archive-match-v2 tournament-match-row ${clickable ? 'clickable' : ''}" id="match-row-${match.id}" data-match-id="${match.id}" ${clickable ? `onclick="showMatchPredictions(${match.id})"` : ''}>
+    return `<article class="archive-match-v2 tournament-match-row ${clickable ? 'clickable' : ''} ${tbd ? 'tbd-match' : ''}" id="match-row-${match.id}" data-match-id="${match.id}" ${clickable ? `onclick="showMatchPredictions(${match.id})"` : ''}>
         <div class="archive-match-main">
             <div class="archive-match-info">
-                <span class="archive-status ${match.is_forfeit ? 'forfeit' : match.status}">${statusText(match)}</span>
+                <span class="archive-status ${match.is_forfeit ? 'forfeit' : tbd ? 'tbd' : match.status}">${tbd ? '对阵待定' : statusText(match)}</span>
                 <strong>${escapeHtml(title)}</strong>
                 <small>${formatDateTime(match.match_time)}</small>
             </div>
@@ -102,7 +107,7 @@ function matchRow(match) {
             <span>${escapeHtml(match.format || 'BO?')}</span>
             <span>${match.prediction_count || 0} 人预测</span>
             <span>${match.correct_prediction_count || 0} 人得分</span>
-            ${clickable ? '<b>查看预测详情</b>' : '<b class="muted">未开放详情</b>'}
+            ${clickable ? '<b>查看预测详情</b>' : `<b class="muted">${tbd ? '等待队伍产生' : '未开放详情'}</b>`}
         </div>
     </article>`;
 }
@@ -112,7 +117,7 @@ function stageMap(stages) {
     return `<div class="tournament-stage-map">${stages.map((group, index) => {
         const metrics = stageItemMetrics(group);
         const done = metrics.total > 0 && metrics.finished >= metrics.total;
-        return `<a class="stage-map-node ${done ? 'done' : ''}" href="#stage-${escapeHtml(group.key)}">
+        return `<a class="stage-map-node ${done ? 'done' : ''}" href="#stage-${escapeHtml(group.key)}" onclick="openTournamentStage('${escapeHtml(group.key)}')">
             <span>${index + 1}</span>
             <strong>${escapeHtml(group.label)}</strong>
             <small>${metrics.finished}/${metrics.total} 已结算</small>
@@ -121,71 +126,72 @@ function stageMap(stages) {
 }
 
 function roundSection(group) {
-    // 「只显示已有对阵」：比赛列表也过滤掉 TBD 未定对局。
-    const rows = (group.matches || []).filter(match => !isTbdMatch(match));
+    const rows = group.matches || [];
     return `<div class="tournament-round-block">
         <div class="tournament-round-head"><h4>${escapeHtml(group.label)}</h4><span>${stageSubtitle(group.matches)}</span></div>
         <div class="archive-match-list">${rows.map(matchRow).join('')}</div>
     </div>`;
 }
 
-function stageSection(group) {
+function stageSection(group, index = 0) {
+    const metrics = stageItemMetrics(group);
+    const head = `<summary class="tournament-stage-head">
+        <h3>${escapeHtml(group.label)}</h3>
+        <span>${metrics.total} 场比赛 · ${metrics.finished} 场已结算 · ${metrics.predictions} 人次预测</span>
+    </summary>`;
+    const open = index === 0 ? ' open' : '';
     if (group.groups) {
-        const metrics = stageItemMetrics(group);
-        return `<section class="tournament-stage-block swiss-stage-block" id="stage-${escapeHtml(group.key)}">
-            <div class="tournament-stage-head">
-                <h3>${escapeHtml(group.label)}</h3>
-                <span>${metrics.total} 场比赛 · ${metrics.finished} 场已结算 · ${metrics.predictions} 人次预测</span>
+        return `<details class="tournament-stage-block swiss-stage-block" id="stage-${escapeHtml(group.key)}"${open}>
+            ${head}
+            <div class="tournament-stage-content">
+                ${stageDiagram(group)}
+                <div class="tournament-round-list">${group.groups.map(roundSection).join('')}</div>
             </div>
-            ${stageDiagram(group)}
-            <div class="tournament-round-list">${group.groups.map(roundSection).join('')}</div>
-        </section>`;
+        </details>`;
     }
     const roundGroups = roundGroupsFromMatches(group.matches || []);
     if (roundGroups.length >= 1) {
-        const metrics = stageItemMetrics(group);
-        return `<section class="tournament-stage-block swiss-stage-block" id="stage-${escapeHtml(group.key)}">
-            <div class="tournament-stage-head">
-                <h3>${escapeHtml(group.label)}</h3>
-                <span>${metrics.total} 场比赛 · ${metrics.finished} 场已结算 · ${metrics.predictions} 人次预测</span>
+        return `<details class="tournament-stage-block swiss-stage-block" id="stage-${escapeHtml(group.key)}"${open}>
+            ${head}
+            <div class="tournament-stage-content">
+                ${stageDiagram(group, roundGroups)}
+                <div class="tournament-round-list">${roundGroups.map(roundSection).join('')}</div>
             </div>
-            ${stageDiagram(group, roundGroups)}
-            <div class="tournament-round-list">${roundGroups.map(roundSection).join('')}</div>
-        </section>`;
+        </details>`;
     }
-    return `<section class="tournament-stage-block" id="stage-${escapeHtml(group.key)}">
-        <div class="tournament-stage-head">
-            <h3>${escapeHtml(group.label)}</h3>
-            <span>${stageSubtitle(group.matches)}</span>
+    return `<details class="tournament-stage-block" id="stage-${escapeHtml(group.key)}"${open}>
+        ${head}
+        <div class="tournament-stage-content">
+            ${stageDiagram(group)}
+            <div class="archive-match-list">${(group.matches || []).map(matchRow).join('')}</div>
         </div>
-        ${stageDiagram(group)}
-        <div class="archive-match-list">${(group.matches || []).filter(match => !isTbdMatch(match)).map(matchRow).join('')}</div>
-    </section>`;
+    </details>`;
 }
 function tournamentCard(tournament) {
     const finished = tournament.finished_count || 0;
     const total = tournament.match_count || 0;
     const predictions = tournament.prediction_count || 0;
+    const ongoing = tournament.ongoing_count || 0;
+    const upcoming = tournament.upcoming_count || 0;
     const status = total > 0 && finished >= total ? '已结束' : '进行中';
     const progress = total ? Math.round((finished / total) * 100) : 0;
-    return `<article class="tournament-card archive-tournament panel" data-id="${tournament.id}">
+    return `<article class="tournament-card archive-tournament panel" data-id="${tournament.id}" onclick="openTournamentPage(${tournament.id})">
         <div class="tournament-card-head archive-tournament-head">
             <div class="archive-tournament-title">
-                <span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>
+                <div><span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span><span class="archive-tournament-state ${ongoing ? 'live' : ''}">${ongoing ? `${ongoing} 场进行中` : status}</span></div>
                 <h2 title="${escapeHtml(tournament.name)}">${escapeHtml(tournament.name)}</h2>
-                <p>${formatDateTime(tournament.begin_at)} ${tournament.end_at ? `- ${formatDateTime(tournament.end_at)}` : ''}</p>
+                <p>${formatDateTime(tournament.begin_at)}${tournament.end_at ? ` - ${formatDateTime(tournament.end_at)}` : ''}</p>
             </div>
-            <div class="archive-tournament-action">
-                <span class="archive-tournament-state">${status}</span>
-                <button onclick="openTournamentPage(${tournament.id})">进入赛事</button>
-            </div>
+            <span class="archive-open" aria-hidden="true">›</span>
         </div>
         <div class="tournament-stats archive-tournament-stats">
             <span><b>${total}</b>比赛</span>
-            <span><b>${finished}</b>已结算</span>
-            <span><b>${predictions}</b>预测</span>
+            <span><b>${finished}</b>已结束</span>
+            <span><b>${upcoming}</b>待开始</span>
+            <span><b>${predictions}</b>人次预测</span>
             <span><b>${progress}%</b>完成</span>
         </div>
+        <div class="tournament-progress"><i style="width:${progress}%"></i></div>
     </article>`;
 }
 
@@ -195,7 +201,12 @@ function tournamentDetailPage(data) {
     const finished = tournament.finished_count || matches.filter(match => match.status === 'finished').length;
     const total = tournament.match_count || matches.length;
     const predictions = tournament.prediction_count || matches.reduce((sum, match) => sum + (match.prediction_count || 0), 0);
-    const stages = buildTournamentStages(matches);
+    const model = buildBracketModel(matches);
+    const stages = model.stages;
+    const stageTotal = stages.reduce((sum, stage) => sum + stageMatches(stage).length, 0);
+    const integrityNotice = stageTotal === matches.length
+        ? ''
+        : `<div class="bracket-integrity-warning">赛程数据不完整：已归类 ${stageTotal}/${matches.length} 场</div>`;
     return `<section class="tournament-focus panel">
         <button class="button ghost tournament-back" onclick="backToTournamentList()">返回赛事列表</button>
         <div class="tournament-focus-head">
@@ -210,8 +221,8 @@ function tournamentDetailPage(data) {
                 <span><b>${predictions}</b>预测</span>
             </div>
         </div>
+        ${integrityNotice}
         ${stageMap(stages)}
-        ${tournamentOverviewDiagram(matches)}
         <div class="tournament-stage-list">${stages.map(stageSection).join('') || '<div class="empty-state"><h3>暂无比赛</h3></div>'}</div>
     </section>`;
 }
@@ -233,6 +244,8 @@ async function openTournamentPage(id) {
     try {
         const data = await sharedApi(`/tournaments/${id}`);
         tournamentsEl.innerHTML = tournamentDetailPage(data);
+        const matchAnchor = location.hash.match(/^#match-row-(\d+)$/);
+        if (matchAnchor) requestAnimationFrame(() => focusTournamentMatch(matchAnchor[1]));
     } catch (error) {
         tournamentsEl.innerHTML = `<div class="empty-state"><h3>加载失败</h3><p>${escapeHtml(error.message)}</p><button onclick="backToTournamentList()">返回赛事列表</button></div>`;
     }
@@ -247,10 +260,17 @@ function backToTournamentList() {
 function focusTournamentMatch(matchId) {
     const row = document.getElementById(`match-row-${matchId}`);
     if (!row) return;
+    const stage = row.closest('details.tournament-stage-block');
+    if (stage) stage.open = true;
     row.scrollIntoView({ behavior: 'smooth', block: 'center' });
     row.classList.remove('match-row-highlight');
     requestAnimationFrame(() => row.classList.add('match-row-highlight'));
     window.setTimeout(() => row.classList.remove('match-row-highlight'), 1800);
+}
+
+function openTournamentStage(stageKey) {
+    const stage = document.getElementById(`stage-${stageKey}`);
+    if (stage && stage.tagName === 'DETAILS') stage.open = true;
 }
 
 function predictionDetailRow(prediction) {
@@ -304,7 +324,8 @@ async function loadTournaments() {
     if (status) params.set('status', status);
     const data = await sharedApi(`/tournaments${params.toString() ? `?${params}` : ''}`);
     state.tournaments = data.tournaments;
-    tournamentsEl.innerHTML = data.tournaments.map(tournamentCard).join('') || '<div class="empty-state"><h3>暂无赛事</h3><p>请等待同步或切换筛选条件。</p></div>';
+    if (tournamentCountEl) tournamentCountEl.textContent = `${data.tournaments.length} 个赛事`;
+    tournamentsEl.innerHTML = data.tournaments.map(tournamentCard).join('') || '<div class="empty-state"><h3>暂无赛事</h3><p>请切换筛选条件。</p></div>';
     applyViewMode();
 }
 
@@ -315,21 +336,13 @@ window.openTournamentPage = openTournamentPage;
 window.backToTournamentList = backToTournamentList;
 window.showMatchPredictions = showMatchPredictions;
 window.focusTournamentMatch = focusTournamentMatch;
+window.openTournamentStage = openTournamentStage;
 window.closeDetailModal = closeDetailModal;
 
 loadTournaments().catch(error => {
     if (tournamentsEl) tournamentsEl.innerHTML = `<div class="empty-state"><h3>加载失败</h3><p>${escapeHtml(error.message)}</p></div>`;
     console.error(error);
 });
-
-
-
-
-
-
-
-
-
 
 
 

@@ -31,7 +31,7 @@
                     <option value="valorant">Valorant</option>
                 </select>
             </div>
-            <button onclick="syncNow()">同步 PandaScore</button>
+            <button onclick="syncNow()">同步赛事数据</button>
             <a class="button ghost" href="/">返回首页</a>
         </div>
 
@@ -99,7 +99,7 @@
                 </select>
                 <select id="filterTournamentSource" onchange="applyAdminFilters()">
                     <option value="">全部来源</option>
-                    <option value="pandascore">PandaScore</option>
+                    <option value="pandascore">自动同步</option>
                     <option value="manual">手动创建</option>
                 </select>
             </div>
@@ -121,7 +121,7 @@
                 <input id="filterTeamKeyword" placeholder="搜索队伍名称" oninput="applyAdminFilters()">
                 <select id="filterTeamSource" onchange="applyAdminFilters()">
                     <option value="">全部来源</option>
-                    <option value="pandascore">PandaScore</option>
+                    <option value="pandascore">自动同步</option>
                     <option value="manual">手动创建</option>
                 </select>
             </div>

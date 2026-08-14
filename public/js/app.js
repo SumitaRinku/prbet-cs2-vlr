@@ -5,12 +5,22 @@
     tournaments: [],
     game: localStorage.getItem('gameFilter') || 'cs2',
     tournament: localStorage.getItem('homeTournamentFilter') || '',
-    bracketCollapsed: localStorage.getItem('homeBracketCollapsed') === '1'
+    status: localStorage.getItem('homeStatusFilter') || '',
+    filterCounts: { all: 0, finished: 0, ongoing: 0, upcoming: 0 },
+    bracketCollapsed: localStorage.getItem('homeBracketCollapsed') !== '0',
+    matchesRequestId: 0,
+    bracketRequestId: 0
 };
 
 const userPanelEl = document.querySelector('#userPanel');
 const gameFilterEl = document.querySelector('#gameFilter');
 const tournamentFilterEl = document.querySelector('#tournamentFilter');
+const tournamentFiltersEl = document.querySelector('#tournamentFilters');
+const statusFiltersEl = document.querySelector('#statusFilters');
+const matchFilterSummaryEl = document.querySelector('#matchFilterSummary');
+const matchResultsTitleEl = document.querySelector('#matchResultsTitle');
+const matchResultsMetaEl = document.querySelector('#matchResultsMeta');
+const clearMatchFiltersEl = document.querySelector('#clearMatchFilters');
 const matchesEl = document.querySelector('#matches');
 const homeBracketEl = document.querySelector('#homeBracket');
 const detailModalEl = document.querySelector('#detailModal');
@@ -101,42 +111,42 @@ function logo(url) {
 window.logoHtml = logo;
 
 function cardState(match, prediction) {
-    const started = new Date(match.match_time) <= new Date();
+    const displayStatus = match.display_status || (match.status === 'finished' ? 'finished' : new Date(match.match_time) <= new Date() ? 'ongoing' : 'upcoming');
     if (match.is_forfeit) return {
         className: 'match-forfeit',
         label: '弃权',
         phase: '对手弃权',
         hint: '本场因弃权按 1-0 判定，已结算但不计入积分。'
     };
-    if (match.status === 'finished') return {
+    if (displayStatus === 'finished') return {
         className: 'match-finished',
-        label: '已结算',
+        label: '已结束',
         phase: '赛果已出',
-        hint: '本场比赛已完成结算，可以查看所有人的预测详情。'
+        hint: ''
     };
-    if (match.status === 'ongoing' || started) return {
+    if (displayStatus === 'ongoing') return {
         className: 'match-settling',
-        label: '等待结算',
-        phase: match.status === 'ongoing' ? '比赛进行中' : '等待赛果同步',
-        hint: prediction ? '你已完成预测，等待比赛结束后结算。' : '比赛已经开始，预测已关闭。'
+        label: '进行中',
+        phase: '比赛进行中',
+        hint: ''
     };
     if (match.betting_enabled && prediction) return {
         className: 'match-picked',
-        label: '已竞猜',
-        phase: '预测已提交',
-        hint: '开赛前仍可重新提交比分预测。'
+        label: '即将开始',
+        phase: '赛前',
+        hint: ''
     };
     if (match.betting_enabled) return {
         className: 'match-open',
-        label: '开放预测',
-        phase: '可提交预测',
-        hint: '选择比分并提交，开赛前都可以修改。'
+        label: '即将开始',
+        phase: '赛前',
+        hint: ''
     };
     return {
         className: 'match-closed',
-        label: '未开放预测',
+        label: '即将开始',
         phase: '暂未开放',
-        hint: '管理员尚未开放本场预测。'
+        hint: ''
     };
 }
 
@@ -144,7 +154,7 @@ function timeInfo(value) {
     const date = new Date(value);
     const diff = date - new Date();
     const exact = formatDateTime(value);
-    if (diff <= 0) return { countdown: '已开始', exact };
+    if (diff <= 0) return { countdown: '进行中', exact };
     const minutes = Math.floor(diff / 60000);
     if (minutes < 60) return { countdown: `${minutes}分钟后`, exact };
     const hours = Math.floor(minutes / 60);
@@ -175,8 +185,11 @@ function matchCard(match) {
     const canPredict = state.user && match.status === 'upcoming' && match.betting_enabled && new Date(match.match_time) > new Date();
     const canCancel = state.user && prediction && match.status === 'upcoming' && new Date(match.match_time) > new Date();
     const info = timeInfo(match.match_time);
-    const isFinished = match.status === 'finished';
+    const displayStatus = match.display_status || (match.status === 'finished' ? 'finished' : new Date(match.match_time) <= new Date() ? 'ongoing' : 'upcoming');
+    const isFinished = displayStatus === 'finished';
     const stateInfo = cardState(match, prediction);
+    const rawStageLabel = match.name || match.stage_name || '常规赛';
+    const stageLabel = rawStageLabel.replace(/:\s*[^:]+\s+vs\s+[^:]+$/i, '').trim() || match.stage_name || '常规赛';
     const team1Winner = isFinished && match.team1_score > match.team2_score;
     const team2Winner = isFinished && match.team2_score > match.team1_score;
     const predictionClass = prediction ? (match.is_forfeit ? 'forfeit' : prediction.points_earned > 0 ? 'correct' : prediction.points_earned === 0 ? 'wrong' : 'pending') : '';
@@ -190,29 +203,27 @@ function matchCard(match) {
                 <div class="match-tournament">
                     <span class="game-pill ${match.game_type || ''}">${gameName(match.game_type)}</span>
                     <span class="match-format">${escapeHtml(match.format)}</span>
-                    <span class="tournament-name">${escapeHtml(match.tournament_name)}</span>
+                    <span class="tournament-name" title="${escapeHtml(match.tournament_name || '')}">${escapeHtml(match.tournament_name || '')}</span>
                 </div>
                 <span class="match-status ${stateInfo.className}">${stateInfo.label}</span>
             </div>
             <div class="match-stage">
-                <strong>${stateInfo.phase}</strong>
-                <span>${info.exact}</span>
+                <strong>${escapeHtml(stageLabel)}</strong>
+                <span>${displayStatus === 'upcoming' ? `${info.countdown} · ${info.exact}` : info.exact}</span>
             </div>
-            <div class="match-state-note">${stateInfo.hint}</div>
             <div class="match-teams">
-                <div class="team team-left ${team1Winner ? 'winner' : ''}">
+                <a class="team team-left team-link ${team1Winner ? 'winner' : ''}" href="/teams.html?team=${match.team1_id}" onclick="event.stopPropagation()">
                     ${logo(match.team1_logo_url)}
                     <div><strong>${escapeHtml(match.team1_short_name || match.team1_name)}</strong><small>${escapeHtml(match.team1_name)}</small></div>
-                </div>
+                </a>
                 <div class="match-center">${isFinished ? `<div class="match-score"><span class="${team1Winner ? 'winner' : ''}">${match.team1_score}</span><em>:</em><span class="${team2Winner ? 'winner' : ''}">${match.team2_score}</span></div>` : '<div class="match-vs">VS</div>'}</div>
-                <div class="team team-right ${team2Winner ? 'winner' : ''}">
+                <a class="team team-right team-link ${team2Winner ? 'winner' : ''}" href="/teams.html?team=${match.team2_id}" onclick="event.stopPropagation()">
                     ${logo(match.team2_logo_url)}
                     <div><strong>${escapeHtml(match.team2_short_name || match.team2_name)}</strong><small>${escapeHtml(match.team2_name)}</small></div>
-                </div>
+                </a>
             </div>
-            <div class="match-footer"><span>${escapeHtml(match.name || '常规赛程')}</span><span>${match.prediction_count || 0} 人预测</span><button class="link-btn" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button></div>
+            <div class="match-footer"><span>${match.prediction_count || 0} 人预测</span><button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button></div>
             ${prediction ? `<div class="user-prediction ${predictionClass}"><strong>我的预测</strong><span>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>${match.is_forfeit ? '<b>弃权不计分</b>' : prediction.points_earned !== null ? `<b>+${prediction.points_earned} 分</b>` : '<b>待结算</b>'}</div>` : ''}
-            ${isFinished ? '<div class="detail-hint">点击查看所有人的预测详情</div>' : ''}
             ${predictionFormHtml}
         </article>`;
 }
@@ -237,7 +248,7 @@ function recentListHtml(items) {
         const isWin = item.result === 'W';
         return `<li class="h2h-form-row">
             <span class="h2h-result ${isWin ? 'win' : 'loss'}">${isWin ? '胜' : '负'}</span>
-            <span class="h2h-opp">vs ${escapeHtml(item.opponent)}</span>
+            <a class="h2h-opp" href="/teams.html?team=${item.opponent_id}">${logo(item.opponent_logo_url)}<span>vs ${escapeHtml(item.opponent)}</span></a>
             <span class="h2h-score">${escapeHtml(item.score)}</span>
             <time class="h2h-date">${formatDateTime(item.match_time)}</time>
         </li>`;
@@ -249,14 +260,20 @@ async function showMatchHead2Head(matchId) {
     try {
         const data = await api(`/matches/${matchId}/head2head`);
         const m = data.match;
-        const formPanel = (team, name) => `
+        const formPanel = (team, side) => {
+            const teamId = m[`${side}_id`];
+            const name = m[`${side}_name`];
+            const logoUrl = m[`${side}_logo_url`];
+            const rate = team.wins + team.losses ? Math.round(team.wins / (team.wins + team.losses) * 100) : 0;
+            return `
             <section class="h2h-panel">
                 <header class="h2h-panel-head">
-                    <span class="h2h-team-name">${escapeHtml(name)}</span>
-                    <span class="h2h-record">近10场 ${escapeHtml(team.label)}</span>
+                    <a class="h2h-team-identity" href="/teams.html?team=${teamId}">${logo(logoUrl)}<span><b>${escapeHtml(name)}</b><small>查看队伍详情</small></span></a>
+                    <div class="h2h-record"><b>${rate}%</b><span>近况胜率 · ${team.wins}胜 ${team.losses}负</span></div>
                 </header>
                 <ol class="h2h-form">${recentListHtml(team.recent)}</ol>
             </section>`;
+        };
         const h2hList = data.head_to_head.length
             ? data.head_to_head.map(h => {
                 const team1Won = h.winner === 'team1';
@@ -272,13 +289,14 @@ async function showMatchHead2Head(matchId) {
             }).join('')
             : '<div class="h2h-empty">两队暂无交手记录</div>';
         detailModalBodyEl.innerHTML = `
-            <div class="modal-head">
-                <h2>${escapeHtml(m.team1_name)} vs ${escapeHtml(m.team2_name)}</h2>
-                <p>双方近期战绩与交手历史</p>
+            <div class="h2h-hero">
+                <a href="/teams.html?team=${m.team1_id}">${logo(m.team1_logo_url)}<strong>${escapeHtml(m.team1_name)}</strong></a>
+                <div><span>HEAD TO HEAD</span><b>VS</b><small>${m.format} · ${formatDateTime(m.match_time)}</small></div>
+                <a href="/teams.html?team=${m.team2_id}">${logo(m.team2_logo_url)}<strong>${escapeHtml(m.team2_name)}</strong></a>
             </div>
-            <div class="h2h-grid">${formPanel(data.team1, m.team1_name)}${formPanel(data.team2, m.team2_name)}</div>
+            <div class="h2h-grid">${formPanel(data.team1, 'team1')}${formPanel(data.team2, 'team2')}</div>
             <section class="h2h-panel h2h-h2h">
-                <header class="h2h-panel-head"><span class="h2h-team-name">交手历史</span></header>
+                <header class="h2h-section-head"><div><span>DIRECT MEETINGS</span><h3>交手记录</h3></div><b>${data.head_to_head.length} 场</b></header>
                 <ol class="h2h-matches">${h2hList}</ol>
             </section>
         `;
@@ -291,27 +309,102 @@ async function showMatchHead2Head(matchId) {
 
 async function loadMatches() {
     if (!matchesEl) return;
+    const requestId = ++state.matchesRequestId;
     const params = new URLSearchParams();
     if (state.game) params.set('game_type', state.game);
     if (state.tournament) params.set('tournament_id', state.tournament);
+    if (state.status) params.set('status', state.status);
     const data = await api(`/matches/upcoming${params.toString() ? `?${params}` : ''}`);
-    state.matches = data.matches;
-    matchesEl.innerHTML = data.matches.map(matchCard).join('') || '<div class="empty-state"><h3>暂无比赛</h3><p>请等待 PandaScore 同步或切换筛选条件。</p></div>';
+    if (requestId !== state.matchesRequestId) return;
+    state.matches = data.matches || [];
+    state.filterCounts = data.filters?.status_counts || { all: 0, finished: 0, ongoing: 0, upcoming: 0 };
+    state.tournaments = data.filters?.tournaments || [];
+    const validTournament = !state.tournament || state.tournaments.some(tournament => String(tournament.id) === String(state.tournament));
+    if (!validTournament) {
+        state.tournament = '';
+        localStorage.setItem('homeTournamentFilter', '');
+        return loadMatches();
+    }
+    renderHomeFilters(data.filters || {});
+    renderMatchResults();
 }
 
 async function loadTournamentOptions() {
-    if (!tournamentFilterEl) return;
-    const params = new URLSearchParams();
-    if (state.game) params.set('game_type', state.game);
-    const data = await api(`/tournaments${params.toString() ? `?${params}` : ''}`);
-    state.tournaments = data.tournaments;
-    const valid = data.tournaments.some(tournament => String(tournament.id) === String(state.tournament));
-    if (!valid) {
-        state.tournament = '';
-        localStorage.setItem('homeTournamentFilter', '');
+    await loadMatches();
+}
+
+const statusFilterOptions = [
+    { value: '', label: '全部比赛', key: 'all' },
+    { value: 'ongoing', label: '进行中', key: 'ongoing' },
+    { value: 'upcoming', label: '即将开始', key: 'upcoming' },
+    { value: 'finished', label: '已结束', key: 'finished' }
+];
+
+function renderHomeFilters(filters) {
+    const counts = state.filterCounts;
+    if (statusFiltersEl) {
+        statusFiltersEl.innerHTML = statusFilterOptions.map(option => `
+            <button type="button" class="status-filter ${state.status === option.value ? 'active' : ''}" onclick="setMatchStatus('${option.value}')" aria-pressed="${state.status === option.value}">
+                <span>${option.label}</span><b>${counts[option.key] || 0}</b>
+            </button>`).join('');
     }
-    tournamentFilterEl.innerHTML = '<option value="">全部赛事</option>' + data.tournaments.map(tournament => `<option value="${tournament.id}">${escapeHtml(tournament.name)}</option>`).join('');
-    tournamentFilterEl.value = state.tournament;
+    const allTournamentCount = state.tournaments.reduce((total, tournament) => total + (tournament.match_count || 0), 0);
+    const tournamentButton = tournament => `<button type="button" class="tournament-filter ${String(state.tournament) === String(tournament.id) ? 'active' : ''}" onclick="setTournament('${tournament.id}')" title="${escapeHtml(tournament.name)}">
+        <span>${escapeHtml(tournament.name)}</span><b>${tournament.match_count || 0}</b>
+    </button>`;
+    if (tournamentFiltersEl) {
+        tournamentFiltersEl.innerHTML = `<button type="button" class="tournament-filter ${state.tournament ? '' : 'active'}" onclick="setTournament('')"><span>全部赛事</span><b>${allTournamentCount}</b></button>${state.tournaments.map(tournamentButton).join('')}`;
+    }
+    if (tournamentFilterEl) {
+        tournamentFilterEl.innerHTML = '<option value="">全部赛事</option>' + state.tournaments.map(tournament => `<option value="${tournament.id}">${escapeHtml(tournament.name)} (${tournament.match_count || 0})</option>`).join('');
+        tournamentFilterEl.value = state.tournament;
+    }
+    const finishedDays = filters.finished_window_days || 1;
+    const finishedWindow = finishedDays === 1 ? '最近 24 小时' : `最近 ${finishedDays} 天`;
+    if (matchFilterSummaryEl) matchFilterSummaryEl.textContent = `未结束比赛 + ${finishedWindow}已结束比赛`;
+}
+
+function statusLabel(value) {
+    return statusFilterOptions.find(option => option.value === value)?.label || '全部比赛';
+}
+
+function renderMatchResults() {
+    const selectedTournament = state.tournaments.find(tournament => String(tournament.id) === String(state.tournament));
+    const titleParts = [selectedTournament?.name || '全部赛事', statusLabel(state.status)];
+    if (matchResultsTitleEl) matchResultsTitleEl.textContent = titleParts.join(' · ');
+    if (matchResultsMetaEl) matchResultsMetaEl.textContent = `${state.matches.length} 场 · ${gameName(state.game)}`;
+    if (clearMatchFiltersEl) clearMatchFiltersEl.hidden = !state.status && !state.tournament;
+    matchesEl.classList.toggle('grouped', !state.tournament);
+    if (!state.matches.length) {
+        matchesEl.innerHTML = '<div class="empty-state"><h3>当前筛选下暂无比赛</h3><p>请切换状态或赛事。</p></div>';
+        return;
+    }
+    if (state.tournament) {
+        matchesEl.innerHTML = state.matches.map(matchCard).join('');
+        return;
+    }
+    const groups = [];
+    const groupMap = new Map();
+    for (const match of state.matches) {
+        let group = groupMap.get(match.tournament_id);
+        if (!group) {
+            group = { id: match.tournament_id, name: match.tournament_name, matches: [] };
+            groupMap.set(match.tournament_id, group);
+            groups.push(group);
+        }
+        group.matches.push(match);
+    }
+    matchesEl.innerHTML = groups.map(group => {
+        const counts = { finished: 0, ongoing: 0, upcoming: 0 };
+        for (const match of group.matches) counts[match.display_status || match.status] = (counts[match.display_status || match.status] || 0) + 1;
+        return `<section class="home-tournament-group">
+            <header class="home-tournament-group-head">
+                <button type="button" onclick="setTournament('${group.id}')"><span>${escapeHtml(group.name)}</span></button>
+                <div>${counts.ongoing ? `<b class="live">${counts.ongoing} 进行中</b>` : ''}${counts.upcoming ? `<b>${counts.upcoming} 即将开始</b>` : ''}${counts.finished ? `<b>${counts.finished} 已结束</b>` : ''}</div>
+            </header>
+            <div class="home-tournament-matches">${group.matches.map(matchCard).join('')}</div>
+        </section>`;
+    }).join('');
 }
 
 async function loadLeaderboard() {}
@@ -352,12 +445,15 @@ function toggleHomeBracket() {
 async function loadHomeBracket() {
     if (!homeBracketEl || typeof tournamentBracketSections !== 'function') return;
     const id = pickHomeBracketTournament();
+    const requestId = ++state.bracketRequestId;
     if (!id) { renderHomeBracketShell('', ''); return; }
     try {
         const data = await api(`/tournaments/${id}`);
+        if (requestId !== state.bracketRequestId || String(id) !== String(pickHomeBracketTournament())) return;
         const sections = tournamentBracketSections(data.matches || []);
         renderHomeBracketShell(data.tournament && data.tournament.name, sections);
     } catch (error) {
+        if (requestId !== state.bracketRequestId) return;
         // 赛程图为辅助信息，加载失败静默隐藏，不打断主流程。
         console.error('home bracket:', error.message);
         renderHomeBracketShell('', '');
@@ -365,13 +461,39 @@ async function loadHomeBracket() {
 }
 
 // bracket.js 生成的图节点 onclick 调用 focusTournamentMatch：主页滚动并高亮对应比赛卡片。
-function focusTournamentMatch(matchId) {
+async function focusTournamentMatch(matchId) {
     const card = document.getElementById(`home-match-${matchId}`);
-    if (!card) return;
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    card.classList.remove('match-row-highlight');
-    requestAnimationFrame(() => card.classList.add('match-row-highlight'));
-    window.setTimeout(() => card.classList.remove('match-row-highlight'), 1800);
+    if (card) {
+        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card.classList.remove('match-row-highlight');
+        requestAnimationFrame(() => card.classList.add('match-row-highlight'));
+        window.setTimeout(() => card.classList.remove('match-row-highlight'), 1800);
+        return;
+    }
+    try {
+        const data = await api(`/matches/${matchId}`);
+        const match = data.match;
+        const visibleTournament = (state.tournaments || []).some(tournament => String(tournament.id) === String(match.tournament_id));
+        if (!visibleTournament || match.team1_name === 'TBD' || match.team2_name === 'TBD') {
+            location.href = `/tournaments.html?tournament=${match.tournament_id}#match-row-${matchId}`;
+            return;
+        }
+        state.tournament = String(match.tournament_id);
+        state.status = match.display_status || (match.status === 'finished' ? 'finished' : new Date(match.match_time) <= new Date() ? 'ongoing' : 'upcoming');
+        localStorage.setItem('homeTournamentFilter', state.tournament);
+        localStorage.setItem('homeStatusFilter', state.status);
+        await loadMatches();
+        const loadedCard = document.getElementById(`home-match-${matchId}`);
+        if (!loadedCard) {
+            location.href = `/tournaments.html?tournament=${match.tournament_id}#match-row-${matchId}`;
+            return;
+        }
+        loadedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        loadedCard.classList.add('match-row-highlight');
+        window.setTimeout(() => loadedCard.classList.remove('match-row-highlight'), 1800);
+    } catch (error) {
+        alert(error.message);
+    }
 }
 window.toggleHomeBracket = toggleHomeBracket;
 window.focusTournamentMatch = focusTournamentMatch;
@@ -380,12 +502,28 @@ window.focusTournamentMatch = focusTournamentMatch;
 function setGame(game) {
     state.game = game;
     localStorage.setItem('gameFilter', game);
-    loadTournamentOptions().then(loadAll).catch(error => alert(error.message));
+    state.tournament = '';
+    localStorage.setItem('homeTournamentFilter', '');
+    loadAll().catch(error => alert(error.message));
 }
 
 function setTournament(tournamentId) {
     state.tournament = tournamentId;
     localStorage.setItem('homeTournamentFilter', tournamentId);
+    Promise.all([loadMatches(), loadHomeBracket()]).catch(error => alert(error.message));
+}
+
+function setMatchStatus(status) {
+    state.status = ['finished', 'ongoing', 'upcoming'].includes(status) ? status : '';
+    localStorage.setItem('homeStatusFilter', state.status);
+    Promise.all([loadMatches(), loadHomeBracket()]).catch(error => alert(error.message));
+}
+
+function clearMatchFilters() {
+    state.status = '';
+    state.tournament = '';
+    localStorage.setItem('homeStatusFilter', '');
+    localStorage.setItem('homeTournamentFilter', '');
     Promise.all([loadMatches(), loadHomeBracket()]).catch(error => alert(error.message));
 }
 
@@ -428,7 +566,8 @@ async function showMatchPredictions(matchId) {
 
 async function loadAll() {
     renderUser();
-    await Promise.all([loadMatches(), loadHomeBracket(), loadLeaderboard(), loadMine()]);
+    await loadMatches();
+    await Promise.all([loadHomeBracket(), loadLeaderboard(), loadMine()]);
 }
 
 window.login = login;
@@ -439,8 +578,10 @@ window.cancelPrediction = cancelPrediction;
 window.showMatchHead2Head = showMatchHead2Head;
 window.setGame = setGame;
 window.setTournament = setTournament;
+window.setMatchStatus = setMatchStatus;
+window.clearMatchFilters = clearMatchFilters;
 window.showMatchPredictions = showMatchPredictions;
 window.closeDetailModal = closeDetailModal;
 
 if (gameFilterEl) gameFilterEl.value = state.game;
-loadTournamentOptions().then(loadAll).catch(error => alert(error.message));
+loadAll().catch(error => alert(error.message));

@@ -119,22 +119,41 @@ function closeDetailModal() {
     document.body.classList.remove('modal-open');
 }
 
-function userDetailRow(prediction) {
-    if (prediction.is_forfeit) {
-        return `<li class="detail-row user-detail forfeit">
-            <strong class="detail-title">${escapeHtml(prediction.tournament_name)}</strong>
-            <span class="detail-match">${escapeHtml(prediction.team1_name)} ${prediction.team1_score}-${prediction.team2_score} ${escapeHtml(prediction.team2_name)}</span>
-            <span class="detail-pick">预测 ${prediction.predicted_team1_score}-${prediction.predicted_team2_score} / ${escapeHtml(prediction.predicted_winner_name)}</span>
-            <b class="detail-points">弃权不计分</b>
-        </li>`;
-    }
+function userDetailStatus(prediction) {
+    if (prediction.is_forfeit) return { cls: 'forfeit', label: '弃权', points: '不计分' };
     const points = prediction.points_earned ?? 0;
-    const cls = points > 0 ? 'correct' : 'wrong';
-    return `<li class="detail-row user-detail ${cls}">
-        <strong class="detail-title">${escapeHtml(prediction.tournament_name)}</strong>
-        <span class="detail-match">${escapeHtml(prediction.team1_name)} ${prediction.team1_score}-${prediction.team2_score} ${escapeHtml(prediction.team2_name)}</span>
-        <span class="detail-pick">预测 ${prediction.predicted_team1_score}-${prediction.predicted_team2_score} / ${escapeHtml(prediction.predicted_winner_name)}</span>
-        <b class="detail-points">+${points} 分</b>
+    return points > 0
+        ? { cls: 'correct', label: '得分', points: `+${points} 分` }
+        : { cls: 'wrong', label: '未得分', points: '0 分' };
+}
+
+function userDetailRow(prediction) {
+    const status = userDetailStatus(prediction);
+    const team1 = prediction.team1_short_name || prediction.team1_name;
+    const team2 = prediction.team2_short_name || prediction.team2_name;
+    return `<li class="leaderboard-prediction-card ${status.cls}">
+        <div class="lb-prediction-head">
+            <div>
+                <span class="game-pill ${prediction.game_type || ''}">${gameName(prediction.game_type)}</span>
+                <span class="match-format">${escapeHtml(prediction.format || 'BO?')}</span>
+                <strong>${escapeHtml(prediction.tournament_name)}</strong>
+            </div>
+            <span class="lb-result-status ${status.cls}">${status.label}</span>
+        </div>
+        <div class="lb-prediction-matchup">
+            <div class="lb-prediction-team">${logoHtml(prediction.team1_logo_url)}<b>${escapeHtml(team1)}</b></div>
+            <div class="lb-score-compare">
+                <div><small>赛果</small><strong>${prediction.team1_score} : ${prediction.team2_score}</strong></div>
+                <div><small>预测</small><strong>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</strong></div>
+            </div>
+            <div class="lb-prediction-team right">${logoHtml(prediction.team2_logo_url)}<b>${escapeHtml(team2)}</b></div>
+        </div>
+        <div class="lb-prediction-foot">
+            <span>${escapeHtml(prediction.match_name || '常规赛程')}</span>
+            <time>${formatDateTime(prediction.match_time)}</time>
+            <span>预测胜者：<b>${escapeHtml(prediction.predicted_winner_name)}</b></span>
+            <strong>${status.points}</strong>
+        </div>
     </li>`;
 }
 
@@ -145,12 +164,20 @@ async function showUserDetails(userId) {
     if (state.tournament) params.set('tournament_id', state.tournament);
     try {
         const data = await sharedApi(`/leaderboard/users/${userId}/details${params.toString() ? `?${params}` : ''}`);
+        const scored = data.predictions.filter(prediction => !prediction.is_forfeit && (prediction.points_earned || 0) > 0).length;
+        const missed = data.predictions.filter(prediction => !prediction.is_forfeit && (prediction.points_earned || 0) === 0).length;
         detailModalBodyEl.innerHTML = `
-            <div class="modal-head">
-                <h2>${escapeHtml(data.user.username)} 得分详情</h2>
-                <p>${data.summary.prediction_count} 场已结算 · ${data.summary.total_score} 分 · ${data.summary.success_rate}% 得分率</p>
+            <div class="modal-head leaderboard-detail-head">
+                <div><span class="eyebrow">Prediction history</span><h2>${escapeHtml(data.user.username)}</h2></div>
+                <div class="leaderboard-detail-stats">
+                    <span><b>${data.summary.total_score}</b>积分</span>
+                    <span><b>${data.summary.prediction_count}</b>已结算</span>
+                    <span><b>${scored}</b>得分</span>
+                    <span><b>${missed}</b>未得分</span>
+                    <span><b>${data.summary.success_rate}%</b>得分率</span>
+                </div>
             </div>
-            <ol class="detail-list">${data.predictions.map(userDetailRow).join('') || '<li class="empty-state">暂无已结算预测</li>'}</ol>
+            <ol class="detail-list leaderboard-prediction-list">${data.predictions.map(userDetailRow).join('') || '<li class="empty-state">暂无已结算预测</li>'}</ol>
         `;
         detailModalEl.hidden = false;
         document.body.classList.add('modal-open');

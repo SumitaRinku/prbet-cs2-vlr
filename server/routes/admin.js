@@ -236,13 +236,30 @@ router.put('/matches/:id', (req, res) => {
     const { tournament_id, team1_id, team2_id, name, format, match_time, status, betting_enabled } = req.body;
     if (format && !['BO1', 'BO3', 'BO5'].includes(format)) return res.status(400).json({ error: '赛制无效' });
     if (status && !['upcoming', 'ongoing', 'finished', 'cancelled', 'postponed'].includes(status)) return res.status(400).json({ error: '状态无效' });
-    const result = db.prepare(`
-        UPDATE matches SET tournament_id = COALESCE(?, tournament_id), team1_id = COALESCE(?, team1_id), team2_id = COALESCE(?, team2_id),
-            name = COALESCE(?, name), format = COALESCE(?, format), match_time = COALESCE(?, match_time), status = COALESCE(?, status),
-            betting_enabled = COALESCE(?, betting_enabled)
-        WHERE id = ?
-    `).run(tournament_id || null, team1_id || null, team2_id || null, name || null, format || null, match_time || null, status || null, betting_enabled === undefined ? null : (betting_enabled ? 1 : 0), req.params.id);
-    if (result.changes === 0) return res.status(404).json({ error: '比赛不存在' });
+    const existing = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: '比赛不存在' });
+
+    // 结束比赛必须有完整赛果；使用专用的 /result 接口录入比分后才允许结算。
+    const nextStatus = status || existing.status;
+    if (nextStatus === 'finished' && (existing.team1_score === null || existing.team2_score === null || existing.winner_team_id === null)) {
+        return res.status(400).json({ error: '请先使用录赛果功能填写比分，不能直接将无赛果比赛标记为已结束' });
+    }
+
+    const update = db.transaction(() => {
+        const result = db.prepare(`
+            UPDATE matches SET tournament_id = COALESCE(?, tournament_id), team1_id = COALESCE(?, team1_id), team2_id = COALESCE(?, team2_id),
+                name = COALESCE(?, name), format = COALESCE(?, format), match_time = COALESCE(?, match_time), status = COALESCE(?, status),
+                betting_enabled = COALESCE(?, betting_enabled)
+            WHERE id = ?
+        `).run(tournament_id || null, team1_id || null, team2_id || null, name || null, format || null, match_time || null, status || null, betting_enabled === undefined ? null : (betting_enabled ? 1 : 0), existing.id);
+
+        if (nextStatus === 'finished') {
+            settleMatch(existing.id);
+            recalculateUserScores();
+        }
+        return result;
+    });
+    update();
     res.json({ message: '比赛已更新' });
 });
 

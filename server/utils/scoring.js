@@ -1,4 +1,5 @@
 function maxScore(format) {
+    if (format === 'BO1') return 1;
     return format === 'BO5' ? 3 : 2;
 }
 

@@ -4,6 +4,12 @@ const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { isValidScore, possibleScores } = require('../utils/scoring');
 
 const router = express.Router();
+const HOME_FINISHED_DAYS = 1;
+const HOME_PHASE_SQL = `CASE
+    WHEN m.status = 'finished' THEN 'finished'
+    WHEN m.status = 'ongoing' OR (m.status = 'upcoming' AND datetime(m.match_time) <= datetime('now')) THEN 'ongoing'
+    ELSE 'upcoming'
+END`;
 
 // 排除含 TBD 占位队的未定对局（方案1：首页/列表只显示可参与的比赛，
 // 完整赛制结构由赛事详情页的赛程图展示）。占位队来自 pandascore 且 name='TBD'。
@@ -55,24 +61,84 @@ router.get('/', optionalAuth, (req, res) => {
 
 router.get('/upcoming', optionalAuth, (req, res) => {
     const { game_type, tournament_id } = req.query;
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const params = [cutoff];
-    let where = `(m.status IN ('upcoming', 'ongoing') OR (m.status = 'finished' AND datetime(m.match_time) >= datetime(?))) AND tour.is_active = 1 AND ${NOT_TBD}`;
+    const status = ['finished', 'ongoing', 'upcoming'].includes(req.query.status) ? req.query.status : '';
+    const cutoff = new Date(Date.now() - HOME_FINISHED_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const baseParams = [cutoff];
+    let baseWhere = `(m.status IN ('upcoming', 'ongoing') OR (m.status = 'finished' AND datetime(m.match_time) >= datetime(?))) AND tour.is_active = 1 AND ${NOT_TBD}`;
     if (game_type) {
-        where += ' AND tour.game_type = ?';
-        params.push(game_type);
+        baseWhere += ' AND tour.game_type = ?';
+        baseParams.push(game_type);
     }
+
+    const statusCountWhere = tournament_id ? `${baseWhere} AND m.tournament_id = ?` : baseWhere;
+    const statusCountParams = tournament_id ? [...baseParams, tournament_id] : [...baseParams];
+    const statusRows = db.prepare(`
+        SELECT ${HOME_PHASE_SQL} phase, COUNT(*) count
+        FROM matches m
+        JOIN tournaments tour ON tour.id = m.tournament_id
+        JOIN teams t1 ON t1.id = m.team1_id
+        JOIN teams t2 ON t2.id = m.team2_id
+        WHERE ${statusCountWhere}
+        GROUP BY phase
+    `).all(...statusCountParams);
+
+    // 赛事导航保持稳定，不随状态筛选隐藏；每个赛事上的数量表示首页时间窗口内的总场次。
+    const tournamentWhere = baseWhere;
+    const tournamentParams = [...baseParams];
+    const tournaments = db.prepare(`
+        SELECT tour.id, tour.name, tour.game_type,
+            COUNT(*) match_count,
+            SUM(CASE WHEN ${HOME_PHASE_SQL} = 'finished' THEN 1 ELSE 0 END) finished_count,
+            SUM(CASE WHEN ${HOME_PHASE_SQL} = 'ongoing' THEN 1 ELSE 0 END) ongoing_count,
+            SUM(CASE WHEN ${HOME_PHASE_SQL} = 'upcoming' THEN 1 ELSE 0 END) upcoming_count,
+            SUM(CASE WHEN ${HOME_PHASE_SQL} != 'finished' THEN 1 ELSE 0 END) unfinished_count,
+            MIN(CASE WHEN ${HOME_PHASE_SQL} != 'finished' THEN datetime(m.match_time) END) next_match_time,
+            MAX(datetime(m.match_time)) last_match_time
+        FROM matches m
+        JOIN tournaments tour ON tour.id = m.tournament_id
+        JOIN teams t1 ON t1.id = m.team1_id
+        JOIN teams t2 ON t2.id = m.team2_id
+        WHERE ${tournamentWhere}
+        GROUP BY tour.id
+        ORDER BY CASE WHEN ongoing_count > 0 THEN 0 WHEN upcoming_count > 0 THEN 1 ELSE 2 END,
+            next_match_time ASC, last_match_time DESC, tour.name COLLATE NOCASE ASC
+    `).all(...tournamentParams);
+
+    const params = [...baseParams];
+    let where = baseWhere;
     if (tournament_id) {
         where += ' AND m.tournament_id = ?';
         params.push(tournament_id);
     }
-    const matches = db.prepare(`${matchSelect(where)} ORDER BY CASE m.status WHEN 'finished' THEN 0 WHEN 'ongoing' THEN 1 ELSE 2 END, CASE WHEN m.status = 'finished' THEN m.match_time END DESC, CASE WHEN m.status != 'finished' THEN m.match_time END ASC LIMIT 100`).all(...params);
+    if (status) {
+        where += ` AND ${HOME_PHASE_SQL} = ?`;
+        params.push(status);
+    }
+    const matches = db.prepare(`${matchSelect(where)} ORDER BY
+        CASE ${HOME_PHASE_SQL} WHEN 'ongoing' THEN 0 WHEN 'upcoming' THEN 1 ELSE 2 END,
+        CASE WHEN ${HOME_PHASE_SQL} = 'finished' THEN datetime(m.match_time) END DESC,
+        CASE WHEN ${HOME_PHASE_SQL} != 'finished' THEN datetime(m.match_time) END ASC
+        LIMIT 200`).all(...params);
+    for (const match of matches) {
+        match.display_status = match.status === 'finished'
+            ? 'finished'
+            : (match.status === 'ongoing' || new Date(match.match_time) <= new Date() ? 'ongoing' : 'upcoming');
+    }
     if (req.user) {
         const predictions = db.prepare('SELECT * FROM predictions WHERE user_id = ?').all(req.user.id);
         const map = new Map(predictions.map(prediction => [prediction.match_id, prediction]));
         for (const match of matches) match.user_prediction = map.get(match.id) || null;
     }
-    res.json({ matches });
+    const counts = { finished: 0, ongoing: 0, upcoming: 0 };
+    for (const row of statusRows) counts[row.phase] = row.count;
+    res.json({
+        matches,
+        filters: {
+            status_counts: { ...counts, all: counts.finished + counts.ongoing + counts.upcoming },
+            tournaments,
+            finished_window_days: HOME_FINISHED_DAYS
+        }
+    });
 });
 
 router.get('/:id', optionalAuth, (req, res) => {
@@ -146,9 +212,9 @@ router.get('/:id/head2head', (req, res) => {
 
     const recentFor = (teamId) => db.prepare(`
         SELECT m.team1_id, m.team2_id, m.team1_score, m.team2_score, m.winner_team_id, m.match_time,
-            t1.short_name team1_short_name, t1.name team1_name,
-            t2.short_name team2_short_name, t2.name team2_name,
-            tour.name tournament_name
+            t1.short_name team1_short_name, t1.name team1_name, t1.logo_url team1_logo_url,
+            t2.short_name team2_short_name, t2.name team2_name, t2.logo_url team2_logo_url,
+            tour.id tournament_id, tour.name tournament_name
         FROM matches m
         JOIN teams t1 ON t1.id = m.team1_id
         JOIN teams t2 ON t2.id = m.team2_id
@@ -161,8 +227,11 @@ router.get('/:id/head2head', (req, res) => {
         const isTeam1 = row.team1_id === teamId;
         return {
             match_time: row.match_time,
+            tournament_id: row.tournament_id,
             tournament_name: row.tournament_name,
+            opponent_id: isTeam1 ? row.team2_id : row.team1_id,
             opponent: isTeam1 ? (row.team2_short_name || row.team2_name) : (row.team1_short_name || row.team1_name),
+            opponent_logo_url: isTeam1 ? row.team2_logo_url : row.team1_logo_url,
             result: row.winner_team_id === teamId ? 'W' : 'L',
             score: isTeam1 ? `${row.team1_score}-${row.team2_score}` : `${row.team2_score}-${row.team1_score}`
         };
@@ -199,8 +268,12 @@ router.get('/:id/head2head', (req, res) => {
     res.json({
         match: {
             id: match.id,
+            team1_id: match.team1_id,
+            team2_id: match.team2_id,
             team1_name: match.team1_short_name || match.team1_name,
             team2_name: match.team2_short_name || match.team2_name,
+            team1_logo_url: match.team1_logo_url,
+            team2_logo_url: match.team2_logo_url,
             match_time: match.match_time,
             format: match.format
         },
