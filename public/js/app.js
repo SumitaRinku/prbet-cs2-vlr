@@ -162,6 +162,30 @@ function timeInfo(value) {
     return { countdown: `${Math.floor(hours / 24)}天${hours % 24}小时后`, exact };
 }
 
+// 即将开始：秒表倒计时文本，xdxh / xhxm / xmxs，到点显示「进行中」
+function countdownText(matchTime) {
+    const diff = new Date(matchTime) - new Date();
+    if (diff <= 0) return '进行中';
+    const totalSec = Math.floor(diff / 1000);
+    const d = Math.floor(totalSec / 86400);
+    const h = Math.floor((totalSec % 86400) / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (d > 0) return `${d}d${h}h`;
+    if (h > 0) return `${h}h${m}m`;
+    return `${m}m${s}s`;
+}
+
+// 每秒刷新所有 [data-countdown] 徽标；秒表图标走 ::before，textContent 只更新数字
+function startCountdownTicker() {
+    if (window.__countdownTicker) return;
+    window.__countdownTicker = setInterval(() => {
+        document.querySelectorAll('[data-countdown]').forEach(el => {
+            el.textContent = countdownText(el.getAttribute('data-countdown'));
+        });
+    }, 1000);
+}
+
 function scorePairs(format) {
     if (format === 'BO1') return [[1, 0], [0, 1]];
     if (format === 'BO5') return [[3, 0], [3, 1], [3, 2], [0, 3], [1, 3], [2, 3]];
@@ -205,11 +229,11 @@ function matchCard(match) {
                     <span class="match-format">${escapeHtml(match.format)}</span>
                     <span class="tournament-name" title="${escapeHtml(match.tournament_name || '')}">${escapeHtml(match.tournament_name || '')}</span>
                 </div>
-                <span class="match-status ${stateInfo.className}">${stateInfo.label}</span>
+                <span class="match-status ${stateInfo.className}"${displayStatus === 'upcoming' ? ` data-countdown="${match.match_time}"` : ''}>${displayStatus === 'upcoming' ? countdownText(match.match_time) : stateInfo.label}</span>
             </div>
             <div class="match-stage">
                 <strong>${escapeHtml(stageLabel)}</strong>
-                <span>${displayStatus === 'upcoming' ? `${info.countdown} · ${info.exact}` : info.exact}</span>
+                <span>${info.exact}</span>
             </div>
             <div class="match-teams">
                 <a class="team team-left team-link ${team1Winner ? 'winner' : ''}" href="/teams.html?team=${match.team1_id}" onclick="event.stopPropagation()">
@@ -585,3 +609,4 @@ window.closeDetailModal = closeDetailModal;
 
 if (gameFilterEl) gameFilterEl.value = state.game;
 loadAll().catch(error => alert(error.message));
+startCountdownTicker();

@@ -758,3 +758,35 @@ html,body{max-width:100%;overflow-x:hidden}
 .pagination{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:16px;font-size:.9rem;font-weight:700;color:var(--text-secondary)}
 .pagination button{padding:7px 14px}
 .pagination button:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* === 移动端浏览与页脚体验优化 === */
+/* 1) 比赛卡底部「X人预测 + 对阵历史」：移动端保持单行，
+      覆盖 ≤520px 的 button{width:100%} 与 ≤620px 的 flex-wrap:wrap */
+.home-layout .match-footer{flex-wrap:nowrap}
+.home-layout .match-footer>span,.home-layout .match-footer .link-btn{width:auto;flex:0 0 auto;white-space:nowrap}
+/* 3) PC 对阵历史弹窗：近况面板限高并内部滚动，交手记录不再被挤出可视区 */
+.h2h-form{max-height:300px;overflow-y:auto}
+/* 2) 移动端对阵历史：两队近况同屏并排；保留队名与 xW-xL 战绩，仅隐藏对阵时间 */
+@media(max-width:640px){
+  .h2h-grid{grid-template-columns:1fr 1fr;gap:8px}
+  .h2h-panel{padding:10px}
+  .h2h-panel-head{flex-direction:column;align-items:flex-start;gap:4px;margin-bottom:8px}
+  .h2h-team-identity small{display:none}
+  .h2h-team-identity b{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .h2h-record{align-items:flex-start}
+  .h2h-form-row{gap:6px;padding:5px 6px;font-size:.76rem}
+  .h2h-form-row .h2h-date{display:none}
+  .h2h-result{width:24px;height:20px;font-size:.66rem}
+  .h2h-opp img,.h2h-opp .placeholder{width:20px;height:20px}
+  .h2h-form{max-height:240px}
+}
+/* 4) 页脚吸底：页面内容较少时深蓝页脚不再悬浮在页面中部。
+      body 改 flex 列后，带 margin:auto 的主容器会因 auto margin 关闭 stretch 而塌缩成内容宽
+      （队伍页 auto-fill 网格甚至会掉到 1 列），故显式 width:100% 让其填满，
+      由 max-width 截断 + margin:auto 居中，并恢复 auto-fill 列数。 */
+body{display:flex;flex-direction:column}
+.layout,.page-shell,.admin-shell,.home-layout{width:100%}
+.site-footer{margin-top:auto}
+/* 5) 「即将开始」状态徽标改为秒表图标 + 剩余时间（每秒跳动）；秒表用 ::before，避免 ticker 的 textContent 覆盖 */
+.match-status[data-countdown]{font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.match-status[data-countdown]::before{content:"⏱";margin-right:4px}
