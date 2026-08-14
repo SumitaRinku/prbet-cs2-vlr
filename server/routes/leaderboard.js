@@ -95,9 +95,11 @@ router.get('/users/:id/details', (req, res) => {
 
     const predictions = db.prepare(`
         SELECT p.id, p.predicted_team1_score, p.predicted_team2_score, p.points_earned,
-            m.id match_id, m.name match_name, m.match_time, m.is_forfeit, m.team1_score, m.team2_score,
+            m.id match_id, m.name match_name, m.match_time, m.format, m.is_forfeit, m.team1_score, m.team2_score,
             tour.name tournament_name, tour.game_type,
-            t1.name team1_name, t2.name team2_name, pw.name predicted_winner_name
+            t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url,
+            t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url,
+            pw.name predicted_winner_name
         FROM predictions p
         JOIN matches m ON m.id = p.match_id
         JOIN tournaments tour ON tour.id = m.tournament_id

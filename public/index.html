@@ -15,30 +15,44 @@
             <div class="site-nav">
                 <a class="active" href="/">比赛竞猜</a>
                 <a href="/tournaments.html">赛事回看</a>
+                <a href="/teams.html">队伍中心</a>
                 <a href="/leaderboard.html">排行榜</a>
                 <a href="/profile.html">个人中心</a>
             </div>
             <div id="userPanel"></div>
         </nav>
         <section>
-            <p class="eyebrow">Matches</p>
             <h1>比赛竞猜</h1>
-            <p>查看近期赛程，选择你看好的胜者和比分。</p>
+            <p>按状态和赛事快速找到目标比赛。</p>
         </section>
     </header>
 
     <main class="layout home-layout">
         <section class="maincol">
-            <div class="section-head">
-                <h2>比赛列表</h2>
-                <select id="gameFilter" onchange="setGame(this.value)">
-                    <option value="cs2">CS2</option>
-                    <option value="valorant">Valorant</option>
-                    <option value="">全部游戏</option>
-                </select>
-                <select id="tournamentFilter" onchange="setTournament(this.value)">
-                    <option value="">全部赛事</option>
-                </select>
+            <section class="home-match-browser" aria-label="比赛筛选">
+                <div class="home-browser-head">
+                    <div>
+                        <h2>比赛与赛事</h2>
+                        <p id="matchFilterSummary">按状态和赛事筛选比赛。</p>
+                    </div>
+                    <select id="gameFilter" aria-label="筛选游戏" onchange="setGame(this.value)">
+                        <option value="cs2">CS2</option>
+                        <option value="valorant">Valorant</option>
+                        <option value="">全部游戏</option>
+                    </select>
+                </div>
+                <div id="statusFilters" class="match-status-tabs" role="group" aria-label="比赛状态"></div>
+                <div class="home-tournament-filter">
+                    <div class="filter-label"><strong>赛事</strong></div>
+                    <div id="tournamentFilters" class="tournament-filter-list"></div>
+                    <select id="tournamentFilter" aria-label="筛选赛事" onchange="setTournament(this.value)">
+                        <option value="">全部赛事</option>
+                    </select>
+                </div>
+            </section>
+            <div class="match-results-head">
+                <div><h2 id="matchResultsTitle">全部比赛</h2><p id="matchResultsMeta"></p></div>
+                <button id="clearMatchFilters" class="button ghost" type="button" onclick="clearMatchFilters()" hidden>清除筛选</button>
             </div>
             <div id="homeBracket" class="home-bracket" hidden></div>
             <div id="matches" class="grid"></div>

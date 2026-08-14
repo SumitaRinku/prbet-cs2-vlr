@@ -306,7 +306,6 @@ function swissRoundBuckets(roundGroups, skeleton = false) {
         const round = group.round || Number((String(group.label || '').match(/\d+/) || [0])[0]);
         const buckets = new Map();
         for (const match of group.matches) {
-            if (isTbdMatch(match)) continue; // 真实对阵先入桶；TBD 槽位后续由骨架补齐
             const left = records.get(teamRecordKey(match, 1)) || { wins: 0, losses: 0 };
             const right = records.get(teamRecordKey(match, 2)) || { wins: 0, losses: 0 };
             const paired = left.wins === right.wins && left.losses === right.losses;
@@ -366,14 +365,16 @@ function swissMatchLogo(match, side) {
         ? Number(match.team1_score) > Number(match.team2_score)
         : Number(match.team2_score) > Number(match.team1_score));
     // TBD / 骨架占位：直接渲染「?」盾牌，不走 logo 代理。
-    if ((name || '') === 'TBD' || match.__placeholder) return `<span class="sw2-logo tbd">${TBD_SHIELD}</span>`;
-    return `<span class="sw2-logo ${won ? 'winner' : ''}">${logoHtml(logo)}</span>`;
+    const logoNode = (name || '') === 'TBD' || match.__placeholder
+        ? `<span class="sw2-logo tbd">${TBD_SHIELD}</span>`
+        : `<span class="sw2-logo ${won ? 'winner' : ''}">${logoHtml(logo)}</span>`;
+    return `<span class="sw2-side ${won ? 'winner' : ''}">${logoNode}<b>${escapeHtml(teamShortName(match, side))}</b></span>`;
 }
 
 function isLiveMatch(match) {
     if (match.__placeholder) return false;
     if (isTbdMatch(match)) return false;
-    // 后端确认的进行中状态（PandaScore running → ongoing）。
+    // 后端确认的进行中状态（running → ongoing）。
     if (match.status === 'ongoing' || match.status === 'live' || match.status === 'running') return true;
     // 前端派生：开赛时间已过、尚未结束/取消，即视为进行中。无需等 5 分钟同步，0 延迟。
     if (match.status === 'finished' || match.status === 'cancelled' || match.status === 'canceled' || match.status === 'postponed') return false;
@@ -381,8 +382,8 @@ function isLiveMatch(match) {
 }
 
 function swissMatchNodeClean(match) {
-    // 骨架占位与 TBD 对阵仅作结构展示，不可点击。
-    const clickable = !match.__placeholder && !isTbdMatch(match);
+    // 只有前端合成的骨架槽位不可点击；真实 TBD 对局仍可定位到赛事详情。
+    const clickable = !match.__placeholder;
     const live = isLiveMatch(match);
     const attrs = clickable
         ? `onclick="focusTournamentMatch(${match.id})"`
@@ -468,23 +469,31 @@ function swissDiagram(roundGroups) {
         return swissResultBucketsForLabels(finalBuckets, resultLabelsForRound(round)).length > 0;
     });
     if (!visibleRounds.length) return '';
-    return `<div class="swiss-bracket-clean" style="--swiss-cols:repeat(${visibleRounds.length},minmax(0,1fr))" aria-label="瑞士轮赛程图">
+    return `<div class="swiss-bracket-clean" style="--swiss-round-count:${visibleRounds.length};--swiss-cols:repeat(${visibleRounds.length},minmax(0,1fr))" aria-label="瑞士轮赛程图">
         ${visibleRounds.map(group => swissRoundColumnClean(group, finalBuckets)).join('')}
     </div>`;
 }
 
 function playoffRoundLabel(match) {
-    const source = `${match.name || ''} ${match.stage_name || ''}`.toLowerCase();
-    if (source.includes('quarter') || source.includes('四分之一')) return { key: '1-quarterfinals', label: '四分之一决赛' };
-    if (source.includes('semi') || source.includes('半决赛')) return { key: '2-semifinals', label: '半决赛' };
-    if (source.includes('upper bracket') || source.includes('胜者组')) return { key: '2-upper-bracket', label: '胜者组决赛' };
-    if (source.includes('lower bracket') || source.includes('败者组')) return { key: '2-lower-bracket', label: '败者组决赛' };
-    if (source.includes('grand final') || source.includes('决赛')) return { key: '3-final', label: '决赛' };
-    if (/\bfinal\b/.test(source) && !/bracket/.test(source)) return { key: '3-final', label: '决赛' };
+    const source = String(match.name || match.stage_name || '').toLowerCase();
+    if (source.includes('upper bracket') || source.includes('lower bracket') || source.includes('胜者组') || source.includes('败者组')) return null;
+    const roundOf = source.match(/\bround\s+of\s+(128|64|32|16|8|4|2)\b/i);
+    if (roundOf) {
+        const size = Number(roundOf[1]);
+        if (size === 8) return { key: '70-quarterfinals', label: '四分之一决赛', order: 70 };
+        if (size === 4) return { key: '80-semifinals', label: '半决赛', order: 80 };
+        if (size === 2) return { key: '90-final', label: '决赛', order: 90 };
+        return { key: `${String(128 - size).padStart(3, '0')}-round-of-${size}`, label: `Round of ${size}`, order: 128 - size };
+    }
+    if (source.includes('quarter') || source.includes('四分之一')) return { key: '70-quarterfinals', label: '四分之一决赛', order: 70 };
+    if (source.includes('semi') || source.includes('半决赛')) return { key: '80-semifinals', label: '半决赛', order: 80 };
+    if (source.includes('grand final') || source.includes('总决赛')) return { key: '90-final', label: '决赛', order: 90 };
+    if ((/\bfinals?\b/.test(source) || source.includes('决赛')) && !/bracket/.test(source)) return { key: '90-final', label: '决赛', order: 90 };
     return null;
 }
 
 function playoffDisplayLabel(label) {
+    if (/round of\s+\d+/i.test(label)) return label.match(/round of\s+\d+/i)[0].replace(/^round/i, 'Round');
     if (label.includes('四分之一') || label.toLowerCase().includes('quarter')) return 'Quarter-finals';
     if (label.includes('半决赛') || label.toLowerCase().includes('semi')) return 'Semi-finals';
     if (label.includes('胜者组') || label.toLowerCase().includes('upper bracket')) return 'Upper bracket final';
@@ -494,7 +503,7 @@ function playoffDisplayLabel(label) {
 }
 
 function playoffGroupsFromMatches(matches) {
-    const sorted = [...matches].sort((a, b) => new Date(a.match_time || 0) - new Date(b.match_time || 0));
+    const sorted = [...matches].sort(bracketMatchCompare);
     const detected = new Map();
     for (const match of sorted) {
         const round = playoffRoundLabel(match);
@@ -502,47 +511,18 @@ function playoffGroupsFromMatches(matches) {
         if (!detected.has(round.key)) detected.set(round.key, { ...round, matches: [] });
         detected.get(round.key).matches.push(match);
     }
-    if (detected.size) {
-        const groups = [...detected.values()].sort((a, b) => a.key.localeCompare(b.key));
-        // 补全骨架：把每个已识别轮次的对局数补到标准淘汰赛槽位数（QF=4、SF=2、决赛=1），
-        // 缺失的槽位用 TBD 占位，让「几场1/4、几场半决赛」等结构一目了然。
-        // 单败淘汰下，若已知某轮真实场次多于标准（如 Ro16=8），以真实场次为准，不裁剪。
-        const expectedByKey = { '1-quarterfinals': 4, '2-semifinals': 2, '2-upper-bracket': 1, '2-lower-bracket': 1, '3-final': 1 };
-        for (const group of groups) {
-            const expected = expectedByKey[group.key];
-            if (!expected) continue;
-            const target = Math.max(group.matches.length, expected);
-            for (let i = group.matches.length; i < target; i++) {
-                group.matches.push(placeholderMatch(group.key, i, playoffDisplayLabel(group.label)));
-            }
-        }
-        return groups;
-    }
-
-    const templates = sorted.length >= 7
-        ? [
-            { key: '1-quarterfinals', label: '四分之一决赛', count: 4 },
-            { key: '2-semifinals', label: '半决赛', count: 2 },
-            { key: '3-final', label: '决赛', count: 1 }
-        ]
-        : sorted.length >= 3
-            ? [
-                { key: '2-semifinals', label: '半决赛', count: 2 },
-                { key: '3-final', label: '决赛', count: sorted.length - 2 }
-            ]
-            : [{ key: '3-final', label: '淘汰赛', count: sorted.length }];
-    let offset = 0;
-    return templates.map(template => {
-        const matchesForRound = sorted.slice(offset, offset + template.count);
-        offset += template.count;
-        return { key: template.key, label: template.label, matches: matchesForRound };
-    }).filter(group => group.matches.length);
+    const unmatched = sorted.filter(match => !playoffRoundLabel(match));
+    const groups = [...detected.values()]
+        .sort((a, b) => (a.order || 0) - (b.order || 0) || a.key.localeCompare(b.key))
+        .map(group => ({ ...group, matches: group.matches.sort(bracketMatchCompare) }));
+    if (unmatched.length) groups.push({ key: '99-other-knockout', label: groups.length ? '其他淘汰赛' : '淘汰赛', order: 99, matches: unmatched });
+    return groups;
 }
 
 function isPlayoffStage(group) {
     const source = `${group.label || ''} ${stageMatches(group).map(match => match.name || '').join(' ')}`.toLowerCase();
     if (source.includes('group') || source.includes('小组')) return false;
-    return source.includes('playoff') || source.includes('quarter') || source.includes('semi') || source.includes('upper bracket') || source.includes('lower bracket') || source.includes('胜者组') || source.includes('败者组') || source.includes('淘汰') || source.includes('决赛') || (/\bfinal\b/.test(source) && !/bracket/.test(source));
+    return source.includes('playoff') || /round\s+of\s+(128|64|32|16|8|4|2)/i.test(source) || source.includes('quarter') || source.includes('semi') || source.includes('upper bracket') || source.includes('lower bracket') || source.includes('胜者组') || source.includes('败者组') || source.includes('淘汰') || source.includes('决赛') || (/\bfinal\b/.test(source) && !/bracket/.test(source));
 }
 
 function isCompactBracketViewport() {
@@ -550,69 +530,45 @@ function isCompactBracketViewport() {
 }
 
 function playoffLayout(groups) {
-    const counts = groups.map(group => group.matches.length).join('-');
     const compact = isCompactBracketViewport();
-    if (counts === '4-2-1') {
-        const cardW = compact ? 104 : 190;
-        const cardH = compact ? 48 : 68;
-        const xs = compact ? [6, 122, 238] : [20, 300, 580];
-        const ys = compact ? [[34, 88, 142, 196], [61, 169], [115]] : [[54, 134, 214, 294], [94, 254], [174]];
-        const w = compact ? 348 : 790;
-        const h = compact ? 252 : 390;
-        const center = (round, index) => ({ x: xs[round] + cardW, y: ys[round][index] + cardH / 2 });
-        const joinPair = (fromRound, aIndex, bIndex, toRound, toIndex) => {
-            const a = center(fromRound, aIndex);
-            const b = center(fromRound, bIndex);
-            const targetY = ys[toRound][toIndex] + cardH / 2;
-            const fromRight = xs[fromRound] + cardW;
-            const toLeft = xs[toRound];
-            const joinX = Math.round((fromRight + toLeft) / 2);
-            return [`M${fromRight},${a.y} H${joinX}`, `M${fromRight},${b.y} H${joinX}`, `M${joinX},${a.y} V${b.y}`, `M${joinX},${targetY} H${toLeft}`];
-        };
-        return {
-            w, h, cardW, cardH, xs, ys,
-            lines: [
-                ...joinPair(0, 0, 1, 1, 0),
-                ...joinPair(0, 2, 3, 1, 1),
-                ...joinPair(1, 0, 1, 2, 0)
-            ]
-        };
+    const cardW = compact ? 150 : 160;
+    const cardH = compact ? 58 : 68;
+    const xGap = compact ? 34 : 64;
+    const yGap = compact ? 10 : 12;
+    const startX = compact ? 8 : 20;
+    const startY = compact ? 42 : 54;
+    const xs = groups.map((_, index) => startX + index * (cardW + xGap));
+    const ys = [];
+    const lines = [];
+    for (let roundIndex = 0; roundIndex < groups.length; roundIndex++) {
+        const count = groups[roundIndex].matches.length;
+        const previous = roundIndex > 0 ? groups[roundIndex - 1].matches.length : 0;
+        if (roundIndex > 0 && previous === count * 2) {
+            ys.push(Array.from({ length: count }, (_, index) => {
+                const a = ys[roundIndex - 1][index * 2];
+                const b = ys[roundIndex - 1][index * 2 + 1];
+                const targetY = (a + b) / 2;
+                const fromRight = xs[roundIndex - 1] + cardW;
+                const toLeft = xs[roundIndex];
+                const joinX = Math.round((fromRight + toLeft) / 2);
+                const aCenter = a + cardH / 2;
+                const bCenter = b + cardH / 2;
+                const targetCenter = targetY + cardH / 2;
+                lines.push(`M${fromRight},${aCenter} H${joinX}`, `M${fromRight},${bCenter} H${joinX}`, `M${joinX},${aCenter} V${bCenter}`, `M${joinX},${targetCenter} H${toLeft}`);
+                return targetY;
+            }));
+        } else {
+            ys.push(Array.from({ length: count }, (_, index) => startY + index * (cardH + yGap)));
+        }
     }
-    if (counts === '2-1') {
-        const cardW = compact ? 108 : 190;
-        const cardH = compact ? 48 : 68;
-        const xs = compact ? [6, 132] : [20, 300];
-        const ys = compact ? [[50, 104], [77]] : [[74, 154], [114]];
-        const fromRight = xs[0] + cardW;
-        const toLeft = xs[1];
-        const joinX = Math.round((fromRight + toLeft) / 2);
-        const y1 = ys[0][0] + cardH / 2;
-        const y2 = ys[0][1] + cardH / 2;
-        const targetY = ys[1][0] + cardH / 2;
-        return {
-            w: compact ? 246 : 510,
-            h: compact ? 184 : 260,
-            cardW,
-            cardH,
-            xs,
-            ys,
-            lines: [`M${fromRight},${y1} H${joinX}`, `M${fromRight},${y2} H${joinX}`, `M${joinX},${y1} V${y2}`, `M${joinX},${targetY} H${toLeft}`]
-        };
-    }
-    const cardW = compact ? 104 : 190;
-    const cardH = compact ? 48 : 68;
-    const xGap = compact ? 12 : 90;
-    const yGap = compact ? 6 : 12;
-    const xs = groups.map((_, index) => (compact ? 6 : 20) + index * (cardW + xGap));
-    const ys = groups.map(group => group.matches.map((_, index) => (compact ? 34 : 54) + index * (cardH + yGap)));
     return {
-        w: xs[xs.length - 1] + cardW + (compact ? 6 : 20),
-        h: Math.max(compact ? 170 : 220, Math.max(...ys.map(round => (round.at(-1) || (compact ? 34 : 54)) + cardH + (compact ? 22 : 40)))),
+        w: xs[xs.length - 1] + cardW + startX,
+        h: Math.max(compact ? 170 : 220, Math.max(...ys.map(round => (round.at(-1) || startY) + cardH + (compact ? 26 : 40)))),
         cardW,
         cardH,
         xs,
         ys,
-        lines: []
+        lines
     };
 }
 
@@ -636,8 +592,7 @@ function playoffTeamRowClean(match, side) {
 function playoffCardClean(match) {
     const title = match.name || '淘汰赛';
     const tbd = isTbdMatch(match);
-    // TBD 对局仅作骨架展示，不可点击进入详情。
-    const interaction = tbd
+    const interaction = match.__placeholder
         ? ''
         : `role="button" tabindex="0" onclick="focusTournamentMatch(${match.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();focusTournamentMatch(${match.id});}"`;
     return `<div class="pb2-card ${match.status || ''} ${tbd ? 'tbd' : ''}" ${interaction} title="${escapeHtml(title)}">
@@ -648,7 +603,7 @@ function playoffCardClean(match) {
 
 function playoffDiagram(matches) {
     // 淘汰赛画完整骨架：即使对阵未定（TBD）也保留卡片与连接线，
-    // 用 ? 盾牌 + TBD 占位，直观展示赛制结构（PandaScore 早已给出完整 QF/SF/Final 骨架）。
+    // 用问号盾牌 + TBD 占位，直观展示完整赛制结构。
     const groups = playoffGroupsFromMatches(matches || []);
     if (!groups.length) return '';
     const layout = playoffLayout(groups);
@@ -663,51 +618,89 @@ function playoffDiagram(matches) {
     </div>`;
 }
 
-function bracketTeamRowClean(match, side, prefix = 'de') {
+function bracketTeamState(match, side, flow = null) {
+    const finished = match.status === 'finished';
+    const won = finished && ((side === 1 && Number(match.team1_score) > Number(match.team2_score)) || (side === 2 && Number(match.team2_score) > Number(match.team1_score)));
+    return {
+        finished,
+        won,
+        tone: won ? 'winner' : finished ? 'loser' : 'pending',
+        marker: flow === 'drop' && finished && !won ? 'drop' : flow === 'advance' && finished && won ? 'advance' : null
+    };
+}
+
+function bracketTeamRowClean(match, side, prefix = 'de', flow = null) {
     const score = side === 1 ? match.team1_score : match.team2_score;
-    const won = match.status === 'finished' && ((side === 1 && Number(match.team1_score) > Number(match.team2_score)) || (side === 2 && Number(match.team2_score) > Number(match.team1_score)));
+    const state = bracketTeamState(match, side, flow);
     const logo = side === 1 ? match.team1_logo_url : match.team2_logo_url;
-    return `<div class="${prefix}-team ${won ? 'winner' : 'loser'}">
+    const marker = state.marker === 'drop'
+        ? '<span class="de-flow drop" title="掉入败者组" aria-label="掉入败者组">↓</span>'
+        : state.marker === 'advance'
+            ? '<span class="de-flow advance" title="晋级 Playoffs" aria-label="晋级 Playoffs">→</span>'
+            : '<span class="de-flow" aria-hidden="true"></span>';
+    return `<div class="${prefix}-team ${state.tone}">
         <span class="${prefix}-bar"></span>
         ${logoHtml(logo)}
         <b>${escapeHtml(teamShortName(match, side))}</b>
-        <strong>${match.status === 'finished' ? escapeHtml(score ?? 0) : '-'}</strong>
+        ${marker}
+        <strong>${state.finished ? escapeHtml(score ?? 0) : '-'}</strong>
     </div>`;
 }
 
-function compactBracketCard(match, prefix = 'de') {
+function compactBracketCard(match, prefix = 'de', flow = null) {
     const title = match.name || 'Bracket match';
-    return `<div class="${prefix}-card ${match.status || ''}" role="button" tabindex="0" onclick="focusTournamentMatch(${match.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();focusTournamentMatch(${match.id});}" title="${escapeHtml(title)}">
-        ${bracketTeamRowClean(match, 1, prefix)}
-        ${bracketTeamRowClean(match, 2, prefix)}
+    const tbd = isTbdMatch(match);
+    const interaction = match.__placeholder
+        ? ''
+        : `role="button" tabindex="0" onclick="focusTournamentMatch(${match.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();focusTournamentMatch(${match.id});}"`;
+    return `<div class="${prefix}-card ${match.status || ''} ${tbd ? 'tbd' : ''}" ${interaction} title="${escapeHtml(title)}">
+        ${bracketTeamRowClean(match, 1, prefix, flow)}
+        ${bracketTeamRowClean(match, 2, prefix, flow)}
     </div>`;
 }
 
 function bracketKind(match) {
     const name = String(match.name || '').toLowerCase();
-    if (name.includes('upper bracket quarterfinal')) return 'upper-qf';
-    if (name.includes('upper bracket semifinal')) return 'upper-sf';
-    if (name.includes('upper bracket final')) return 'upper-final';
-    if (name.includes('lower bracket quarterfinal')) return 'lower-qf';
-    if (name.includes('lower bracket semifinal')) return 'lower-sf';
-    if (name.includes('lower bracket final')) return 'lower-final';
-    if (name.includes('grand final')) return 'grand-final';
-    if (name.includes('3rd place') || name.includes('third place')) return 'third-place';
-    if (name.includes('quarterfinal')) return 'playoff-qf';
-    if (name.includes('semifinal')) return 'playoff-sf';
-    if (/\bfinal\b/.test(name)) return 'grand-final';
-    return '';
+    const bracketRound = name.match(/\b(upper|lower)\s+bracket\s+round\s+(\d+)\b/i);
+    if (bracketRound) return { side: bracketRound[1], round: Number(bracketRound[2]), label: `Round ${bracketRound[2]}`, kind: `${bracketRound[1]}-round-${bracketRound[2]}` };
+    const bracketNamed = name.match(/\b(upper|lower)\s+bracket\s+(quarterfinals?|semifinals?|finals?)\b/i);
+    if (bracketNamed) {
+        const token = bracketNamed[2].toLowerCase();
+        const round = token.startsWith('quarter') ? 70 : token.startsWith('semi') ? 80 : 90;
+        const label = token.startsWith('quarter') ? 'Quarter-finals' : token.startsWith('semi') ? 'Semi-finals' : 'Final';
+        return { side: bracketNamed[1], round, label, kind: `${bracketNamed[1]}-${round}` };
+    }
+    if (name.includes('grand final')) return { side: 'grand', round: 100, label: 'Grand final', kind: 'grand-final' };
+    if (name.includes('3rd place') || name.includes('third place')) return { side: 'medal', round: 100, label: '3rd Place', kind: 'third-place' };
+    const playoff = playoffRoundLabel(match);
+    return playoff ? { side: 'single', round: playoff.order, label: playoffDisplayLabel(playoff.label), kind: playoff.key } : null;
 }
 
 function matchesByBracketKind(matches) {
     const map = new Map();
-    for (const match of [...matches].sort((a, b) => new Date(a.match_time || 0) - new Date(b.match_time || 0) || a.id - b.id)) {
-        const kind = bracketKind(match);
-        if (!kind) continue;
-        if (!map.has(kind)) map.set(kind, []);
-        map.get(kind).push(match);
+    for (const match of [...matches].sort(bracketMatchCompare)) {
+        const meta = bracketKind(match);
+        if (!meta) continue;
+        if (!map.has(meta.kind)) map.set(meta.kind, { ...meta, matches: [] });
+        map.get(meta.kind).matches.push(match);
     }
     return map;
+}
+
+function bracketMatchPosition(match) {
+    const name = String(match.name || '');
+    const explicitMatch = name.match(/\bmatch\s*(\d+)\b/i);
+    if (explicitMatch) return Number(explicitMatch[1]);
+    const namedRound = name.match(/\b(?:quarterfinals?|semifinals?|finals?)\s*(\d+)\b/i);
+    if (namedRound) return Number(namedRound[1]);
+    return Number.MAX_SAFE_INTEGER;
+}
+
+function bracketMatchCompare(a, b) {
+    const position = bracketMatchPosition(a) - bracketMatchPosition(b);
+    if (position !== 0) return position;
+    const time = new Date(a.match_time || 0) - new Date(b.match_time || 0);
+    return time || Number(a.id || 0) - Number(b.id || 0);
 }
 
 function bracketTeamKeys(match) {
@@ -737,60 +730,41 @@ function collectConnectedMatches(matches, teamSet) {
     return selected.sort((a, b) => new Date(a.match_time || 0) - new Date(b.match_time || 0) || a.id - b.id);
 }
 
-function buildDoubleElimGroups(map) {
-    const upperFinals = map.get('upper-final') || [];
-    if (!upperFinals.length) return [];
-    return upperFinals.map((upperFinal, index) => {
-        const teamSet = new Set(bracketTeamKeys(upperFinal));
-        const upperSf = collectConnectedMatches(map.get('upper-sf') || [], teamSet);
-        const upperQf = collectConnectedMatches(map.get('upper-qf') || [], teamSet);
-        const lowerFinal = collectConnectedMatches(map.get('lower-final') || [], teamSet);
-        const lowerSf = collectConnectedMatches(map.get('lower-sf') || [], teamSet);
-        const lowerQf = collectConnectedMatches(map.get('lower-qf') || [], teamSet);
-        return {
-            name: `Group ${String.fromCharCode(65 + index)}`,
-            upperQf,
-            upperSf,
-            upperFinal: [upperFinal],
-            lowerQf,
-            lowerSf,
-            lowerFinal
-        };
-    });
+function doubleElimRounds(map, side) {
+    return [...map.values()]
+        .filter(group => group.side === side)
+        .sort((a, b) => a.round - b.round || a.kind.localeCompare(b.kind))
+        .map(group => ({ ...group, matches: uniqueMatches(group.matches).sort(bracketMatchCompare) }));
 }
 
-function doubleElimRound(label, matches, extraClass = '') {
+function doubleElimRound(label, matches, laneHeight, cardHeight, flow = null, extraClass = '') {
     const countClass = `count-${Math.max(matches.length, 1)}`;
+    const slotHeight = matches.length ? laneHeight / matches.length : laneHeight;
     return `<section class="de-round ${countClass} ${extraClass}">
         <div class="de-round-title">${escapeHtml(label)}</div>
-        <div class="de-card-list">${matches.map(match => compactBracketCard(match, 'de')).join('') || '<div class="de-empty">TBD</div>'}</div>
+        <div class="de-card-list bracket-positioned" style="height:${laneHeight}px">${matches.map((match, index) => {
+            const top = Math.round((index + 0.5) * slotHeight - cardHeight / 2);
+            return `<div class="de-card-slot" style="top:${top}px;height:${cardHeight}px">${compactBracketCard(match, 'de', flow)}</div>`;
+        }).join('') || '<div class="de-empty">TBD</div>'}</div>
     </section>`;
 }
 
 function doubleElimLane(label, rounds, tone) {
+    const cardHeight = 48;
+    const cardGap = 8;
+    const maxMatches = Math.max(1, ...rounds.map(round => round.matches.length));
+    const laneHeight = maxMatches * cardHeight + Math.max(0, maxMatches - 1) * cardGap;
     return `<div class="de-lane ${tone}">
         <div class="de-lane-label">${escapeHtml(label)}</div>
-        <div class="de-lane-rounds">${rounds.join('')}</div>
+        <div class="de-lane-rounds" style="--de-round-count:${Math.max(rounds.length, 1)}">${rounds.map((round, index) => {
+            const flow = tone === 'upper' && index < rounds.length - 1 ? 'drop' : index === rounds.length - 1 ? 'advance' : null;
+            return doubleElimRound(round.label, round.matches, laneHeight, cardHeight, flow);
+        }).join('')}</div>
     </div>`;
 }
 
-function doubleElimGroup(group) {
-    return `<section class="de-group">
-        <h4>${escapeHtml(group.name)}</h4>
-        ${doubleElimLane('Upper bracket', [
-            doubleElimRound('Quarter-finals', group.upperQf),
-            doubleElimRound('Semi-finals', group.upperSf),
-            doubleElimRound('Final', group.upperFinal)
-        ], 'upper')}
-        ${doubleElimLane('Lower bracket', [
-            doubleElimRound('Quarter-finals', group.lowerQf),
-            doubleElimRound('Semi-finals', group.lowerSf),
-            doubleElimRound('Final', group.lowerFinal)
-        ], 'lower')}
-    </section>`;
-}
 function finalBracketOverview(map) {
-    const matches = uniqueMatches([...(map.get('playoff-qf') || []), ...(map.get('playoff-sf') || []), ...(map.get('grand-final') || [])])
+    const matches = uniqueMatches([...map.values()].filter(group => group.side === 'single' || group.side === 'grand').flatMap(group => group.matches))
         .sort((a, b) => new Date(a.match_time || 0) - new Date(b.match_time || 0) || a.id - b.id);
     if (!matches.length) return '';
     return `<section class="de-finals major-style-playoffs">
@@ -800,14 +774,20 @@ function finalBracketOverview(map) {
 }
 
 function doubleElimDiagram(matches) {
-    // 「只显示已有对阵」：过滤掉 TBD 未定对局。
-    const map = matchesByBracketKind((matches || []).filter(match => !isTbdMatch(match)));
-    const groups = buildDoubleElimGroups(map);
-    const hasDoubleElim = groups.length && (map.get('lower-final') || []).length;
+    const map = matchesByBracketKind(matches || []);
+    const upperRounds = doubleElimRounds(map, 'upper');
+    const lowerRounds = doubleElimRounds(map, 'lower');
+    const hasDoubleElim = upperRounds.length && lowerRounds.length;
     if (!hasDoubleElim) return '';
     return `<div class="de-bracket-clean" aria-label="赛事赛程图">
-        <div class="de-overview-title">Bracket overview</div>
-        <div class="de-groups">${groups.map(doubleElimGroup).join('')}</div>
+        <div class="de-overview-head">
+            <div class="de-overview-title">Bracket overview</div>
+            <div class="de-flow-legend"><span><i>↓</i> 掉入败者组</span><span><i>→</i> 晋级 Playoffs</span></div>
+        </div>
+        <section class="de-group de-full-bracket">
+            ${doubleElimLane('Upper bracket', upperRounds, 'upper')}
+            ${doubleElimLane('Lower bracket', lowerRounds, 'lower')}
+        </section>
         ${finalBracketOverview(map)}
     </div>`;
 }
@@ -826,33 +806,49 @@ function uniqueMatches(matches) {
     });
 }
 function doubleElimTournamentStages(matches) {
-    const map = matchesByBracketKind(matches);
-    const groups = buildDoubleElimGroups(map);
-    const hasDoubleElim = groups.length && (map.get('lower-final') || []).length;
-    if (!hasDoubleElim) return null;
-    const stages = groups.map((group, index) => ({
-        key: `double-elim-group-${index + 1}`,
-        label: group.name,
-        type: 'double-elim-group',
-        matches: uniqueMatches([...group.upperQf, ...group.upperSf, ...group.upperFinal, ...group.lowerQf, ...group.lowerSf, ...group.lowerFinal])
-            .sort((a, b) => new Date(a.match_time || 0) - new Date(b.match_time || 0) || a.id - b.id)
-    }));
-    const playoffMatches = uniqueMatches([...(map.get('playoff-qf') || []), ...(map.get('playoff-sf') || []), ...(map.get('grand-final') || [])])
-        .sort((a, b) => new Date(a.match_time || 0) - new Date(b.match_time || 0) || a.id - b.id);
-    if (playoffMatches.length) {
-        stages.push({ key: 'double-elim-playoffs', label: 'Playoffs', type: 'double-elim-playoffs', matches: playoffMatches });
+    const partitions = new Map();
+    const bracketMatches = matches.filter(match => {
+        const meta = bracketKind(match);
+        return meta && ['upper', 'lower', 'single', 'grand', 'medal'].includes(meta.side);
+    });
+    const externalIds = [...new Set(bracketMatches.map(match => match.stage_external_id).filter(Boolean))];
+    const singleExternalBracket = externalIds.length <= 1;
+    for (const match of bracketMatches) {
+        const meta = bracketKind(match);
+        const externalKey = match.stage_external_id || (singleExternalBracket ? 'inferred-playoffs' : match.stage_name || 'inferred-playoffs');
+        const key = externalKey ? `api-${externalKey}` : 'inferred-playoffs';
+        if (!partitions.has(key)) partitions.set(key, { key, matches: [] });
+        partitions.get(key).matches.push(match);
     }
-    const thirdPlace = (map.get('third-place') || [])
-        .sort((a, b) => new Date(a.match_time || 0) - new Date(b.match_time || 0) || a.id - b.id);
-    if (thirdPlace.length) {
-        stages.push({ key: 'double-elim-third-place', label: '3rd Place', type: 'double-elim-third-place', matches: thirdPlace });
+    const stages = [];
+    for (const partition of partitions.values()) {
+        const map = matchesByBracketKind(partition.matches);
+        const upperRounds = doubleElimRounds(map, 'upper');
+        const lowerRounds = doubleElimRounds(map, 'lower');
+        if (!upperRounds.length || !lowerRounds.length) continue;
+        const labelCandidates = partition.matches.map(match => match.stage_name).filter(Boolean);
+        const distinctLabels = [...new Set(labelCandidates)];
+        const label = labelCandidates.find(name => /play-?in|playoff|knockout/i.test(name))
+            || (distinctLabels.length === 1 ? distinctLabels[0] : 'Playoffs');
+        stages.push({
+            key: `double-elim-${partition.key}`,
+            label,
+            type: 'double-elim-bracket',
+            matches: uniqueMatches(partition.matches).sort((a, b) => new Date(a.match_time || 0) - new Date(b.match_time || 0) || a.id - b.id)
+        });
     }
-    return stages;
+    if (!stages.length) return null;
+    const consumed = new Set(stages.flatMap(stage => stage.matches).map(match => match.id));
+    const leftovers = matches.filter(match => !consumed.has(match.id));
+    if (leftovers.length) stages.push(...explicitRoundTournamentStages(leftovers));
+    return sortTournamentStages(stages);
 }
 
 
 function matchRoundNumberFromStage(match) {
-    const source = `${match.stage_name || ''} ${match.stage_slug || ''} ${match.name || ''}`;
+    const nameRound = String(match.name || '').match(/(?:round|r)[\s-]*(\d+)/i);
+    if (nameRound) return Number(nameRound[1]);
+    const source = `${match.stage_name || ''} ${match.stage_slug || ''}`;
     const round = source.match(/(?:round|r)[\s-]*(\d+)/i);
     return round ? Number(round[1]) : null;
 }
@@ -861,7 +857,7 @@ function isPlayoffRoundMatch(match) {
     const source = `${match.stage_name || ''} ${match.stage_slug || ''} ${match.name || ''}`.toLowerCase();
     if (source.includes('upper bracket') || source.includes('lower bracket')) return false;
     if (source.includes('3rd place') || source.includes('third place') || source.includes('decider')) return false;
-    return source.includes('quarterfinal') || source.includes('semi') || source.includes('grand final') || /\bfinal\b/.test(source);
+    return /round\s+of\s+(128|64|32|16|8|4|2)/.test(source) || source.includes('quarterfinal') || source.includes('semi') || source.includes('grand final') || /\bfinal\b/.test(source);
 }
 
 function isThirdPlaceMatch(match) {
@@ -925,14 +921,107 @@ function swissPlayoffTournamentStages(matches) {
     }
     return stages;
 }
+
+function explicitRoundTournamentStages(matches) {
+    const roundGroups = new Map();
+    const leftovers = [];
+    for (const match of matches) {
+        const source = `${match.stage_name || ''} ${match.name || ''}`.toLowerCase();
+        const round = matchRoundNumberFromStage(match);
+        if (!round || round > 9 || source.includes('upper bracket') || source.includes('lower bracket') || /round\s+of\s+\d+/.test(source)) {
+            leftovers.push(match);
+            continue;
+        }
+        const key = `round-${String(round).padStart(2, '0')}`;
+        if (!roundGroups.has(key)) roundGroups.set(key, { key, label: `Round ${round}`, round, matches: [] });
+        roundGroups.get(key).matches.push(match);
+    }
+    const stages = [];
+    if (roundGroups.size >= 2) {
+        stages.push({
+            key: 'explicit-round-stage',
+            label: 'Swiss Stage',
+            type: 'swiss-stage',
+            groups: [...roundGroups.values()].sort((a, b) => a.round - b.round)
+        });
+    } else {
+        leftovers.push(...[...roundGroups.values()].flatMap(group => group.matches));
+    }
+    if (leftovers.length) stages.push(...sortTournamentStages(splitRepeatedSwissStages(groupMatches(leftovers))));
+    return stages;
+}
+
+function normalizeTournamentStageMatches(stages) {
+    const seen = new Set();
+    return (stages || []).map(stage => {
+        if (stage.groups) {
+            const groups = stage.groups.map(group => ({
+                ...group,
+                matches: (group.matches || []).filter(match => {
+                    if (seen.has(match.id)) return false;
+                    seen.add(match.id);
+                    return true;
+                })
+            })).filter(group => group.matches.length);
+            return { ...stage, groups };
+        }
+        const stageMatches = (stage.matches || []).filter(match => {
+            if (seen.has(match.id)) return false;
+            seen.add(match.id);
+            return true;
+        });
+        return { ...stage, matches: stageMatches };
+    }).filter(stage => stage.groups ? stage.groups.length : stage.matches.length);
+}
+
+function structureExplicitStages(stages) {
+    return (stages || []).map(stage => {
+        const matches = stageMatches(stage);
+        const source = `${stage.label || ''} ${matches.map(match => `${match.stage_name || ''} ${match.name || ''}`).join(' ')}`.toLowerCase();
+        const rounds = roundGroupsFromMatches(matches);
+        if (source.includes('swiss') && rounds.length >= 2) {
+            return { ...stage, type: 'swiss-stage', groups: rounds, matches: undefined };
+        }
+        return stage;
+    });
+}
+
+function buildBracketModel(matches) {
+    const source = uniqueMatches(matches || []);
+    const explicitStages = structureExplicitStages(sortTournamentStages(splitRepeatedSwissStages(groupMatches(source))));
+    const inferred = doubleElimTournamentStages(source)
+        || (source.some(match => match.stage_external_id) ? explicitStages : swissPlayoffTournamentStages(source))
+        || explicitRoundTournamentStages(source);
+    const stages = normalizeTournamentStageMatches(inferred);
+    const classifiedMatchIds = new Set(stages.flatMap(stage => stageMatches(stage)).map(match => match.id));
+    const unclassifiedMatches = source.filter(match => !classifiedMatchIds.has(match.id));
+    if (unclassifiedMatches.length) {
+        stages.push({ key: '99-unclassified', label: '其他赛程', type: 'unclassified', matches: unclassifiedMatches });
+    }
+    const renderedIds = stages.flatMap(stage => stageMatches(stage)).map(match => match.id);
+    return {
+        format: stages.some(stage => stage.type === 'double-elim-bracket') ? 'double-elimination' : stages.some(stage => stage.type === 'swiss-stage') ? 'swiss' : 'staged',
+        stages,
+        classifiedMatchIds: [...classifiedMatchIds],
+        unclassifiedMatches,
+        diagnostics: {
+            inputCount: source.length,
+            renderedCount: renderedIds.length,
+            uniqueRenderedCount: new Set(renderedIds).size,
+            duplicateInputCount: Math.max(0, (matches || []).length - source.length)
+        }
+    };
+}
+
 function buildTournamentStages(matches) {
-    return doubleElimTournamentStages(matches) || swissPlayoffTournamentStages(matches) || sortTournamentStages(splitRepeatedSwissStages(groupMatches(matches)));
+    return buildBracketModel(matches).stages;
 }
 function stageDiagram(group, roundGroups = null) {
     const matches = stageMatches(group);
     if (!matches.length) return '';
     const label = (group.label || '').toLowerCase();
     const matchNames = matches.map(match => match.name || '').join(' ').toLowerCase();
+    if (group.type === 'double-elim-bracket') return doubleElimDiagram(matches);
     if (label.includes('group') || label.includes('小组')) return '';
     if (matchNames.includes('upper bracket') || matchNames.includes('lower bracket')) return '';
     if (group.groups) return swissDiagram(group.groups);
@@ -990,4 +1079,19 @@ function tournamentBracketSections(matches) {
             ${diagram}
         </section>`;
     }).filter(Boolean).join('');
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        bracketKind,
+        bracketTeamState,
+        buildBracketModel,
+        buildTournamentStages,
+        doubleElimRounds,
+        isTbdMatch,
+        matchesByBracketKind,
+        playoffGroupsFromMatches,
+        playoffRoundLabel,
+        stageMatches
+    };
 }

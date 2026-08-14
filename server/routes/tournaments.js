@@ -37,6 +37,8 @@ router.get('/', (req, res) => {
         SELECT t.*,
             COUNT(DISTINCT m.id) match_count,
             COUNT(DISTINCT CASE WHEN m.status = 'finished' THEN m.id END) finished_count,
+            COUNT(DISTINCT CASE WHEN m.status = 'ongoing' OR (m.status = 'upcoming' AND datetime(m.match_time) <= datetime('now')) THEN m.id END) ongoing_count,
+            COUNT(DISTINCT CASE WHEN m.status = 'upcoming' AND datetime(m.match_time) > datetime('now') THEN m.id END) upcoming_count,
             COUNT(DISTINCT CASE WHEN m.status IN ('upcoming', 'ongoing') THEN m.id END) unfinished_count,
             COUNT(p.id) prediction_count
         FROM tournaments t
@@ -56,6 +58,8 @@ router.get('/:id', (req, res) => {
         SELECT t.*,
             COUNT(DISTINCT m.id) match_count,
             COUNT(DISTINCT CASE WHEN m.status = 'finished' THEN m.id END) finished_count,
+            COUNT(DISTINCT CASE WHEN m.status = 'ongoing' OR (m.status = 'upcoming' AND datetime(m.match_time) <= datetime('now')) THEN m.id END) ongoing_count,
+            COUNT(DISTINCT CASE WHEN m.status = 'upcoming' AND datetime(m.match_time) > datetime('now') THEN m.id END) upcoming_count,
             COUNT(DISTINCT CASE WHEN m.status IN ('upcoming', 'ongoing') THEN m.id END) unfinished_count,
             COUNT(p.id) prediction_count
         FROM tournaments t
@@ -105,12 +109,10 @@ router.get('/:id/predictions', (req, res) => {
         JOIN teams t1 ON t1.id = m.team1_id
         JOIN teams t2 ON t2.id = m.team2_id
         JOIN teams pw ON pw.id = p.predicted_winner_id
-        WHERE m.tournament_id = ?
+        WHERE m.tournament_id = ? AND m.status = 'finished'
         ORDER BY m.match_time DESC, p.points_earned DESC, p.created_at ASC
     `).all(tournament.id);
     res.json({ tournament, predictions });
 });
 
 module.exports = router;
-
-

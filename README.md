@@ -16,6 +16,7 @@
 ### 管理后台 `/admin`
 - 统计概览、用户管理
 - 赛事 / 队伍 / 比赛管理
+- 队伍中心：查看队伍近期赛事、阶段名次、比赛结果与胜率
 - 手动触发 PandaScore 同步、查看同步记录
 - 预测开关、赛果录入、预测记录管理
 - 赛事启用 / 禁用：禁用的赛事不在前台展示，后续同步会跳过其比赛状态与赛果更新，适合过滤无需竞猜的小型赛事
@@ -87,6 +88,7 @@ npm start
 
 - 首页：http://localhost:3000
 - 管理后台：http://localhost:3000/admin/
+- 队伍中心：http://localhost:3000/teams.html
 - 健康检查：http://localhost:3000/api/health
 
 默认管理员：
@@ -196,6 +198,7 @@ proxy_pass http://127.0.0.1:3000;
 | `/api/predictions` | 提交与查询预测 |
 | `/api/leaderboard` | 排行榜 |
 | `/api/images` | 队伍 logo 代理 |
+| `/api/teams` | 队伍列表、赛事履历与比赛结果 |
 | `/api/admin` | 管理后台（需管理员权限） |
 | `/api/health` | 健康检查 |
 

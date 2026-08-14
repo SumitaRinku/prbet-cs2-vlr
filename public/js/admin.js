@@ -272,7 +272,7 @@ async function editTournament(id) {
 
 async function toggleTournament(id) {
     const row = state.tournaments.find(item => item.id === id);
-    if (row?.is_active && !confirm('禁用后该赛事不会在前台展示，且后续 PandaScore 同步会跳过该赛事更新。确认禁用？')) return;
+    if (row?.is_active && !confirm('禁用后该赛事不会在前台展示，后续自动同步也会跳过该赛事。确认禁用？')) return;
     await api(`/admin/tournaments/${id}/toggle-active`, { method: 'PUT' });
     await loadAdmin();
 }

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>队伍中心 - PRBET</title>
+    <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
+    <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header class="hero compact">
+        <nav>
+            <a class="brand-logo" href="/" aria-label="PRBET 首页"><img src="/images/prbetlogo.png" alt="PRBET"></a>
+            <div class="site-nav">
+                <a href="/">比赛竞猜</a>
+                <a href="/tournaments.html">赛事回看</a>
+                <a class="active" href="/teams.html">队伍中心</a>
+                <a href="/leaderboard.html">排行榜</a>
+                <a href="/profile.html">个人中心</a>
+            </div>
+            <div id="userPanel"></div>
+        </nav>
+        <section>
+            <p class="eyebrow">Team Hub</p>
+            <h1>队伍中心</h1>
+            <p>查看队伍近期赛程、赛事履历、比赛结果与阶段表现。</p>
+        </section>
+    </header>
+
+    <main class="page-shell team-page">
+        <section id="teamListView">
+            <div class="section-head team-toolbar">
+                <div><h2>全部队伍</h2><p>按游戏筛选，点击队伍查看完整履历。</p></div>
+                <div class="team-filters">
+                    <select id="teamGameFilter" aria-label="游戏类型">
+                        <option value="cs2">CS2</option>
+                        <option value="valorant">Valorant</option>
+                        <option value="">全部游戏</option>
+                    </select>
+                    <input id="teamSearch" type="search" placeholder="搜索队伍名称或简称" aria-label="搜索队伍">
+                </div>
+            </div>
+            <div id="teamsGrid" class="teams-grid"><div class="loading-text">加载队伍中...</div></div>
+        </section>
+        <section id="teamDetailView" class="team-detail-view" hidden></section>
+    </main>
+
+    <footer class="site-footer"><div class="icp-info">{{BEIAN}}</div></footer>
+    <script src="/js/shared.js"></script>
+    <script src="/js/teams.js"></script>
+</body>
+</html>

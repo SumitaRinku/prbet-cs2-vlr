@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
+    "test": "node --test",
     "init-db": "node server/config/init-db.js",
     "migrate": "node server/config/init-db.js",
     "cleanup:pandascore-duplicates": "node scripts/cleanup-pandascore-duplicates.js",
@@ -20,7 +21,7 @@
   "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^11.9.1",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^4.18.2",
