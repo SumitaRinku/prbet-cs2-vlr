@@ -177,11 +177,15 @@ function countdownText(matchTime) {
 }
 
 // 每秒刷新所有 [data-countdown] 徽标；秒表图标走 ::before，textContent 只更新数字
+// 最后 1 分钟挂 cd-urgent 类（呼吸 + 红色），到点或超时自动移除
 function startCountdownTicker() {
     if (window.__countdownTicker) return;
     window.__countdownTicker = setInterval(() => {
         document.querySelectorAll('[data-countdown]').forEach(el => {
-            el.textContent = countdownText(el.getAttribute('data-countdown'));
+            const time = el.getAttribute('data-countdown');
+            el.textContent = countdownText(time);
+            const diff = new Date(time) - new Date();
+            el.classList.toggle('cd-urgent', diff > 0 && diff < 60000);
         });
     }, 1000);
 }

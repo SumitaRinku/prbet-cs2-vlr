@@ -2,6 +2,8 @@
 
 > 基于 Express + SQLite 的电竞赛事预测网站，通过 [PandaScore](https://pandascore.co) REST API 同步 CS2 与 Valorant 赛程及赛果，支持赛前比分预测、积分结算与排行榜。
 
+**实际效果**：<https://prbet.gekichumai.cn>
+
 中文电竞赛事竞猜站点。前端为原生 HTML / CSS / JavaScript（无框架），后端为 Node.js + Express + better-sqlite3，单文件 SQLite 数据库，部署简单。数据由 PandaScore 定时同步，覆盖过去 1 天到未来 7 天的比赛。
 
 ## 功能特性
