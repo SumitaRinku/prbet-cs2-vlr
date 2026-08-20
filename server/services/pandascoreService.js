@@ -130,32 +130,50 @@ function findOrUpgradeExternalId(table, canonicalExternalId, gameType, now) {
     return legacy;
 }
 
+const RETRY_DELAY_MS = 2000;
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function fetchJson(pathname, params) {
     if (!token()) throw new Error('PANDASCORE_API_TOKEN 未配置');
-    const url = new URL(pathname, BASE_URL);
-    for (const [key, value] of Object.entries(params || {})) {
-        if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
-    }
+    // query 手工拼接：range[begin_at]=start,end 中的方括号与逗号必须保持字面量。
+    // URLSearchParams 会把逗号编码为 %2C，PandaScore 会报 400 Range Error
+    // （"Beginning and end aren't be separated by a comma"）。这里的参数值
+    // 均为数字 / ISO 日期 / 排序字段，无需编码。
+    const query = Object.entries(params || {})
+        .filter(([, value]) => value !== undefined && value !== null && value !== '')
+        .map(([key, value]) => `${key}=${value}`)
+        .join('&');
+    const url = new URL(query ? `${pathname}?${query}` : pathname, BASE_URL);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs());
-
-    let response;
-    try {
-        response = await fetch(url, {
-            signal: controller.signal,
-            headers: {
-                Accept: 'application/json',
-                Authorization: `Bearer ${token()}`
+    const doFetch = async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), requestTimeoutMs());
+        try {
+            return await fetch(url, {
+                signal: controller.signal,
+                headers: {
+                    Accept: 'application/json',
+                    Authorization: `Bearer ${token()}`
+                }
+            });
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error(`PandaScore 请求超时：${requestTimeoutMs()}ms，URL=${url.toString()}`);
             }
-        });
-    } catch (error) {
-        if (error.name === 'AbortError') {
-            throw new Error(`PandaScore 请求超时：${requestTimeoutMs()}ms，URL=${url.toString()}`);
+            throw new Error(`PandaScore 请求失败：${error.message}，URL=${url.toString()}`);
+        } finally {
+            clearTimeout(timeout);
         }
-        throw new Error(`PandaScore 请求失败：${error.message}，URL=${url.toString()}`);
-    } finally {
-        clearTimeout(timeout);
+    };
+
+    // 失败重试一次：PandaScore 偶发 400/500（瞬时故障），重试可吸收大部分抖动
+    let response = await doFetch();
+    if (!response.ok && RETRY_DELAY_MS > 0) {
+        await delay(RETRY_DELAY_MS);
+        response = await doFetch();
     }
 
     if (!response.ok) {
@@ -356,8 +374,19 @@ async function syncPandascoreMatches(mode = 'manual') {
         console.log(`[PandaScore] 开始同步，mode=${mode}`);
         const beforeTeams = db.prepare('SELECT COUNT(*) count FROM teams WHERE external_source = ?').get(SOURCE).count;
         const beforeTours = db.prepare('SELECT COUNT(*) count FROM tournaments WHERE external_source = ?').get(SOURCE).count;
-        const rowsByGame = await Promise.all(Object.keys(GAMES).map(fetchMatches));
-        const rows = rowsByGame.flat();
+        // 各游戏独立拉取：单游戏失败不影响其他游戏入库（部分成功优于全部失败）
+        const gameKeys = Object.keys(GAMES);
+        const settled = await Promise.allSettled(gameKeys.map(fetchMatches));
+        const failures = [];
+        const rows = [];
+        settled.forEach((outcome, index) => {
+            if (outcome.status === 'fulfilled') rows.push(...outcome.value);
+            else failures.push(`${GAMES[gameKeys[index]].label}：${outcome.reason.message}`);
+        });
+        if (failures.length === gameKeys.length) {
+            throw new Error(`全部游戏拉取失败：${failures.join('；')}`);
+        }
+        if (failures.length) console.error(`[PandaScore] 部分游戏拉取失败：${failures.join('；')}`);
         console.log(`[PandaScore] API 拉取完成，共 ${rows.length} 场，开始写入数据库`);
         const now = new Date().toISOString();
         let matchesUpserted = 0;
@@ -370,10 +399,11 @@ async function syncPandascoreMatches(mode = 'manual') {
                 if (!result.skipped) {
                     matchesUpserted++;
                     if (result.finished) matchesFinished++;
-                    // 对所有已结束比赛重新结算（幂等），这样赛果被修正后也会更新得分
+                    // 对所有已结束比赛重新结算（幂等），这样赛果被修正后也会更新得分；
+                    // 只有分数实际变化时才重建总分，避免每次同步都全量重算
                     if (result.settle) {
-                        settleMatch(result.id);
-                        scoresChanged = true;
+                        const { changed } = settleMatch(result.id);
+                        if (changed) scoresChanged = true;
                     }
                 }
             }
@@ -385,11 +415,13 @@ async function syncPandascoreMatches(mode = 'manual') {
 
         const teams = Math.max(db.prepare('SELECT COUNT(*) count FROM teams WHERE external_source = ?').get(SOURCE).count - beforeTeams, 0);
         const tournaments = Math.max(db.prepare('SELECT COUNT(*) count FROM tournaments WHERE external_source = ?').get(SOURCE).count - beforeTours, 0);
-        const message = `同步完成，读取 ${rows.length} 场比赛`;
+        const message = `同步完成，读取 ${rows.length} 场比赛${failures.length ? `（部分失败：${failures.join('；')}）` : ''}`;
+        // sync_runs.status 的 CHECK 约束不含 partial：数据已入库的部分按 success 记录，
+        // 失败详情写入 message；API 返回 partial 供前端区分展示。
         db.prepare(`UPDATE sync_runs SET status = 'success', message = ?, finished_at = CURRENT_TIMESTAMP, tournaments_upserted = ?, teams_upserted = ?, matches_upserted = ?, matches_finished = ? WHERE id = ?`)
             .run(message, tournaments, teams, matchesUpserted, matchesFinished, run.lastInsertRowid);
         console.log(`[PandaScore] ${message}`);
-        return { status: 'success', message, tournaments_upserted: tournaments, teams_upserted: teams, matches_upserted: matchesUpserted, matches_finished: matchesFinished };
+        return { status: failures.length ? 'partial' : 'success', message, tournaments_upserted: tournaments, teams_upserted: teams, matches_upserted: matchesUpserted, matches_finished: matchesFinished };
     } catch (error) {
         db.prepare(`UPDATE sync_runs SET status = 'failed', message = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`).run(error.message, run.lastInsertRowid);
         throw error;

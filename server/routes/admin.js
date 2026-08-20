@@ -253,7 +253,9 @@ router.put('/matches/:id', (req, res) => {
             WHERE id = ?
         `).run(tournament_id || null, team1_id || null, team2_id || null, name || null, format || null, match_time || null, status || null, betting_enabled === undefined ? null : (betting_enabled ? 1 : 0), existing.id);
 
-        if (nextStatus === 'finished') {
+        // 仅在状态跳变为已结束时结算；已结束比赛的重复保存不再触发结算。
+        // 赛果修正走 /result 接口，那里始终重新结算。
+        if (nextStatus === 'finished' && existing.status !== 'finished') {
             settleMatch(existing.id);
             recalculateUserScores();
         }
@@ -278,8 +280,8 @@ router.put('/matches/:id/result', (req, res) => {
         recalculateUserScores();
         return processed;
     });
-    const predictions = apply();
-    res.json({ message: '赛果已保存', predictions_processed: predictions });
+    const { processed } = apply();
+    res.json({ message: '赛果已保存', predictions_processed: processed });
 });
 
 router.put('/matches/:id/forfeit', (req, res) => {
@@ -298,8 +300,8 @@ router.put('/matches/:id/forfeit', (req, res) => {
         recalculateUserScores();
         return processed;
     });
-    const predictions = apply();
-    res.json({ message: '已标记为弃权', predictions_processed: predictions });
+    const { processed } = apply();
+    res.json({ message: '已标记为弃权', predictions_processed: processed });
 });
 
 router.put('/matches/:id/betting', (req, res) => {
