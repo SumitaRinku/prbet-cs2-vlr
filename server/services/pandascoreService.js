@@ -1,5 +1,5 @@
-﻿const db = require('../config/database');
-const { settleMatch, recalculateUserScores } = require('../utils/settlement');
+const db = require('../config/database');
+const { settleMatch, recalculateUserScores, recalculateStreakBonuses } = require('../utils/settlement');
 
 const SOURCE = 'pandascore';
 const BASE_URL = process.env.PANDASCORE_BASE_URL || 'https://api.pandascore.co';
@@ -78,6 +78,7 @@ function teamFromOpponent(opponent) {
         name: team.name || 'Unknown Team',
         short_name: team.acronym || team.slug || null,
         logo_url: team.image_url || null,
+        dark_logo_url: team.dark_mode_image_url || null,
         country: team.location || null
     };
 }
@@ -232,16 +233,18 @@ function upsertTournament(match, now) {
 
     const existing = findOrUpgradeExternalId('tournaments', externalId ? String(externalId) : null, gameType, now);
     if (existing) {
-        db.prepare(`UPDATE tournaments SET name = CASE WHEN name_locked = 1 THEN name ELSE ? END, game_type = ?, begin_at = COALESCE(?, begin_at), end_at = COALESCE(?, end_at), last_synced_at = ? WHERE id = ?`)
-            .run(name, gameType, iso(serie.begin_at || match.begin_at), iso(serie.end_at), now, existing.id);
+        // 管理员手动上传的 logo（/uploads/ 本地文件）不被同步覆盖，与 name_locked 同样的保护思路
+        db.prepare(`UPDATE tournaments SET name = CASE WHEN name_locked = 1 THEN name ELSE ? END, game_type = ?, begin_at = COALESCE(?, begin_at), end_at = COALESCE(?, end_at), logo_url = CASE WHEN tournaments.logo_url LIKE '/uploads/%' THEN tournaments.logo_url ELSE COALESCE(?, logo_url) END, last_synced_at = ? WHERE id = ?`)
+            .run(name, gameType, iso(serie.begin_at || match.begin_at), iso(serie.end_at), league.image_url || null, now, existing.id);
         return existing.id;
     }
 
-    const inserted = db.prepare(`INSERT INTO tournaments (name, game_type, is_active, name_locked, begin_at, end_at, external_source, external_id, last_synced_at) VALUES (?, ?, 0, 0, ?, ?, ?, ?, ?)`).run(
+    const inserted = db.prepare(`INSERT INTO tournaments (name, game_type, is_active, name_locked, begin_at, end_at, logo_url, external_source, external_id, last_synced_at) VALUES (?, ?, 0, 0, ?, ?, ?, ?, ?, ?)`).run(
         name,
         gameType,
         iso(serie.begin_at || match.begin_at),
         iso(serie.end_at),
+        league.image_url || null,
         SOURCE,
         externalId ? String(externalId) : null,
         now
@@ -253,20 +256,21 @@ function upsertTeam(team, gameType, now) {
     const externalId = team.external_id ? `${gameType}:${team.external_id}` : null;
     const existing = findOrUpgradeExternalId('teams', externalId, gameType, now);
     if (existing) {
-        db.prepare(`UPDATE teams SET name = ?, game_type = ?, short_name = COALESCE(?, short_name), logo_url = COALESCE(?, logo_url), country = COALESCE(?, country), last_synced_at = ? WHERE id = ?`)
-            .run(team.name, gameType, team.short_name, team.logo_url, team.country, now, existing.id);
+        // dark_logo_url 直接覆盖：null 表示数据源确认无暗色版，需清空让前端回退
+        db.prepare(`UPDATE teams SET name = ?, game_type = ?, short_name = COALESCE(?, short_name), logo_url = COALESCE(?, logo_url), dark_logo_url = ?, country = COALESCE(?, country), last_synced_at = ? WHERE id = ?`)
+            .run(team.name, gameType, team.short_name, team.logo_url, team.dark_logo_url, team.country, now, existing.id);
         return existing.id;
     }
 
     const byName = db.prepare('SELECT id FROM teams WHERE name = ? AND game_type = ?').get(team.name, gameType);
     if (byName) {
-        db.prepare(`UPDATE teams SET external_source = COALESCE(external_source, ?), external_id = COALESCE(external_id, ?), short_name = COALESCE(?, short_name), logo_url = COALESCE(?, logo_url), last_synced_at = ? WHERE id = ?`)
-            .run(SOURCE, externalId, team.short_name, team.logo_url, now, byName.id);
+        db.prepare(`UPDATE teams SET external_source = COALESCE(external_source, ?), external_id = COALESCE(external_id, ?), short_name = COALESCE(?, short_name), logo_url = COALESCE(?, logo_url), dark_logo_url = ?, last_synced_at = ? WHERE id = ?`)
+            .run(SOURCE, externalId, team.short_name, team.logo_url, team.dark_logo_url, now, byName.id);
         return byName.id;
     }
 
-    const inserted = db.prepare(`INSERT INTO teams (name, game_type, short_name, logo_url, country, external_source, external_id, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(team.name, gameType, team.short_name, team.logo_url, team.country, SOURCE, externalId, now);
+    const inserted = db.prepare(`INSERT INTO teams (name, game_type, short_name, logo_url, dark_logo_url, country, external_source, external_id, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(team.name, gameType, team.short_name, team.logo_url, team.dark_logo_url, team.country, SOURCE, externalId, now);
     return inserted.lastInsertRowid;
 }
 
@@ -394,6 +398,7 @@ async function syncPandascoreMatches(mode = 'manual') {
 
         const tx = db.transaction(() => {
             let scoresChanged = false;
+            const settledTournaments = new Set();
             for (const row of rows) {
                 const result = upsertMatch(row, now);
                 if (!result.skipped) {
@@ -404,8 +409,14 @@ async function syncPandascoreMatches(mode = 'manual') {
                     if (result.settle) {
                         const { changed } = settleMatch(result.id);
                         if (changed) scoresChanged = true;
+                        const match = db.prepare('SELECT tournament_id FROM matches WHERE id = ?').get(result.id);
+                        if (match) settledTournaments.add(match.tournament_id);
                     }
                 }
+            }
+            // 结算过的赛事重算连胜加成（含同轮多场的判定），加成有变化同样需要重建总分
+            for (const tournamentId of settledTournaments) {
+                if (recalculateStreakBonuses(tournamentId).changed) scoresChanged = true;
             }
             pruneExpiredInactiveTournaments(now);
             // 全部预测算完后统一重建总分，作为唯一权威来源，避免增量漂移

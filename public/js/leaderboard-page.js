@@ -141,12 +141,12 @@ function userDetailRow(prediction) {
             <span class="lb-result-status ${status.cls}">${status.label}</span>
         </div>
         <div class="lb-prediction-matchup">
-            <div class="lb-prediction-team">${logoHtml(prediction.team1_logo_url)}<b>${escapeHtml(team1)}</b></div>
+            <div class="lb-prediction-team">${logoHtml(prediction.team1_logo_url, prediction.team1_dark_logo_url)}<b>${escapeHtml(team1)}</b></div>
             <div class="lb-score-compare">
                 <div><small>赛果</small><strong>${prediction.team1_score} : ${prediction.team2_score}</strong></div>
                 <div><small>预测</small><strong>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</strong></div>
             </div>
-            <div class="lb-prediction-team right">${logoHtml(prediction.team2_logo_url)}<b>${escapeHtml(team2)}</b></div>
+            <div class="lb-prediction-team right">${logoHtml(prediction.team2_logo_url, prediction.team2_dark_logo_url)}<b>${escapeHtml(team2)}</b></div>
         </div>
         <div class="lb-prediction-foot">
             <span>${escapeHtml(prediction.match_name || '常规赛程')}</span>
@@ -155,6 +155,40 @@ function userDetailRow(prediction) {
             <strong>${status.points}</strong>
         </div>
     </li>`;
+}
+
+// 明细模态框分页：活跃用户可能有数百条预测，全量渲染会让模态框内列表长达数万像素
+const USER_DETAIL_PAGE_SIZE = 20;
+let userDetailPredictions = [];
+let userDetailVisible = USER_DETAIL_PAGE_SIZE;
+
+function renderUserDetailList(predictions) {
+    userDetailPredictions = predictions;
+    userDetailVisible = USER_DETAIL_PAGE_SIZE;
+    return buildUserDetailListHtml();
+}
+
+function buildUserDetailListHtml() {
+    if (!userDetailPredictions.length) return '<ol class="detail-list leaderboard-prediction-list"><li class="empty-state">暂无已结算预测</li></ol>';
+    const visible = userDetailPredictions.slice(0, userDetailVisible);
+    const remaining = userDetailPredictions.length - visible.length;
+    return `<ol class="detail-list leaderboard-prediction-list">${visible.map(userDetailRow).join('')}</ol>`
+        + (remaining > 0 ? `<button class="ghost load-more-btn" onclick="loadMoreUserDetails()">显示更多（剩余 ${remaining} 条）</button>` : '');
+}
+
+function loadMoreUserDetails() {
+    userDetailVisible += USER_DETAIL_PAGE_SIZE;
+    const list = detailModalBodyEl.querySelector('.leaderboard-prediction-list');
+    const btn = detailModalBodyEl.querySelector('.load-more-btn');
+    const html = buildUserDetailListHtml();
+    // 只替换列表区域，保留头部统计
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    const newList = wrapper.querySelector('.leaderboard-prediction-list');
+    const newBtn = wrapper.querySelector('.load-more-btn');
+    list.replaceWith(newList);
+    if (btn) btn.remove();
+    if (newBtn) detailModalBodyEl.appendChild(newBtn);
 }
 
 async function showUserDetails(userId) {
@@ -177,7 +211,7 @@ async function showUserDetails(userId) {
                     <span><b>${data.summary.success_rate}%</b>得分率</span>
                 </div>
             </div>
-            <ol class="detail-list leaderboard-prediction-list">${data.predictions.map(userDetailRow).join('') || '<li class="empty-state">暂无已结算预测</li>'}</ol>
+            ${renderUserDetailList(data.predictions)}
         `;
         detailModalEl.hidden = false;
         document.body.classList.add('modal-open');
@@ -191,6 +225,7 @@ window.loadLeaderboard = loadLeaderboard;
 window.goPage = goPage;
 window.resetLeaderboard = resetLeaderboard;
 window.exportLeaderboard = exportLeaderboard;
+window.loadMoreUserDetails = loadMoreUserDetails;
 window.showUserDetails = showUserDetails;
 window.closeDetailModal = closeDetailModal;
 loadTournamentOptions().then(loadLeaderboard).catch(error => showLeaderboardError(error));

@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
@@ -7,6 +7,8 @@
     <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
     <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
     <link rel="stylesheet" href="/css/style.css">
+    <!-- 主题脚本置于 head 内同步执行：首帧渲染前写入 data-theme，避免暗色模式下页面闪白 -->
+    <script src="/js/theme.js"></script>
 </head>
 <body>
     <header class="hero">
@@ -35,11 +37,11 @@
                         <h2>比赛与赛事</h2>
                         <p id="matchFilterSummary">按状态和赛事筛选比赛。</p>
                     </div>
-                    <select id="gameFilter" aria-label="筛选游戏" onchange="setGame(this.value)">
-                        <option value="cs2">CS2</option>
-                        <option value="valorant">Valorant</option>
-                        <option value="">全部游戏</option>
-                    </select>
+                    <div class="game-switch" id="gameSwitch" role="tablist" aria-label="筛选游戏">
+                        <button type="button" role="tab" data-game="cs2">CS2</button>
+                        <button type="button" role="tab" data-game="valorant">Valorant</button>
+                        <button type="button" role="tab" data-game="">全部</button>
+                    </div>
                 </div>
                 <div id="statusFilters" class="match-status-tabs" role="group" aria-label="比赛状态"></div>
                 <div class="home-tournament-filter">
@@ -52,7 +54,10 @@
             </section>
             <div class="match-results-head">
                 <div><h2 id="matchResultsTitle">全部比赛</h2><p id="matchResultsMeta"></p></div>
-                <button id="clearMatchFilters" class="button ghost" type="button" onclick="clearMatchFilters()" hidden>清除筛选</button>
+                <div class="match-results-actions">
+                    <button class="streak-rules-link" type="button" onclick="showStreakRules()">连胜规则</button>
+                    <button id="clearMatchFilters" class="button ghost" type="button" onclick="clearMatchFilters()" hidden>清除筛选</button>
+                </div>
             </div>
             <div id="homeBracket" class="home-bracket" hidden></div>
             <div id="matches" class="grid"></div>
@@ -73,6 +78,8 @@
         </div>
     </footer>
 
+    <script src="/js/tournament-logos.js"></script>
+    <script src="/js/streak.js"></script>
     <script src="/js/bracket.js"></script>
     <script src="/js/app.js"></script>
 </body>

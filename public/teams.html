@@ -7,6 +7,8 @@
     <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
     <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
     <link rel="stylesheet" href="/css/style.css">
+    <!-- 主题脚本置于 head 内同步执行：首帧渲染前写入 data-theme，避免暗色模式下页面闪白 -->
+    <script src="/js/theme.js"></script>
 </head>
 <body>
     <header class="hero compact">
@@ -38,6 +40,18 @@
                         <option value="valorant">Valorant</option>
                         <option value="">全部游戏</option>
                     </select>
+                    <select id="teamSort" aria-label="排序方式">
+                        <option value="recent">最近活跃</option>
+                        <option value="win_rate">胜率最高</option>
+                        <option value="wins">胜场最多</option>
+                        <option value="played">已赛最多</option>
+                        <option value="name">名称 A-Z</option>
+                    </select>
+                    <select id="teamActivity" aria-label="队伍筛选">
+                        <option value="">全部队伍</option>
+                        <option value="active">有比赛记录</option>
+                        <option value="upcoming">有待赛比赛</option>
+                    </select>
                     <input id="teamSearch" type="search" placeholder="搜索队伍名称或简称" aria-label="搜索队伍">
                 </div>
             </div>
@@ -47,6 +61,7 @@
     </main>
 
     <footer class="site-footer"><div class="icp-info">{{BEIAN}}</div></footer>
+    <script src="/js/tournament-logos.js"></script>
     <script src="/js/shared.js"></script>
     <script src="/js/teams.js"></script>
 </body>

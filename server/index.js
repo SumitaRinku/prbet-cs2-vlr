@@ -82,6 +82,8 @@ app.get('/teams.html', serveHtml('teams.html'));
 app.get('/admin', serveHtml('admin/index.html'));
 app.get('/admin/', serveHtml('admin/index.html'));
 app.use(express.static(publicDir));
+// 管理员手动上传的赛事 logo（data/uploads，运行时数据，不随代码部署覆盖）
+app.use('/uploads', express.static(path.join(__dirname, '../data/uploads'), { maxAge: '7d', fallthrough: true }));
 app.get('*', serveHtml('index.html'));
 
 app.use((error, req, res, next) => {

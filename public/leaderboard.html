@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
@@ -7,6 +7,8 @@
     <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
     <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
     <link rel="stylesheet" href="/css/style.css">
+    <!-- 主题脚本置于 head 内同步执行：首帧渲染前写入 data-theme，避免暗色模式下页面闪白 -->
+    <script src="/js/theme.js"></script>
 </head>
 <body>
     <header class="hero compact">
@@ -64,6 +66,7 @@
         </div>
     </footer>
 
+    <script src="/js/tournament-logos.js"></script>
     <script src="/js/shared.js"></script>
     <script src="/js/leaderboard-page.js"></script>
 </body>

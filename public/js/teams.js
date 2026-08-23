@@ -1,5 +1,7 @@
 const teamState = {
     game: localStorage.getItem('teamGameFilter') || 'cs2',
+    sort: localStorage.getItem('teamSort') || 'recent',
+    activity: localStorage.getItem('teamActivity') || '',
     search: '',
     activeId: new URLSearchParams(location.search).get('team') || ''
 };
@@ -7,31 +9,44 @@ const teamListView = document.querySelector('#teamListView');
 const teamDetailView = document.querySelector('#teamDetailView');
 const teamsGrid = document.querySelector('#teamsGrid');
 const teamGameFilter = document.querySelector('#teamGameFilter');
+const teamSort = document.querySelector('#teamSort');
+const teamActivity = document.querySelector('#teamActivity');
 const teamSearch = document.querySelector('#teamSearch');
 
 if (teamGameFilter) teamGameFilter.value = teamState.game;
+if (teamSort) teamSort.value = teamState.sort;
+if (teamActivity) teamActivity.value = teamState.activity;
 if (teamSearch) teamSearch.value = teamState.search;
 
 function teamEscape(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
 
-function teamLogo(url) {
-    const src = typeof proxiedLogoUrl === 'function' ? proxiedLogoUrl(url) : url || '/images/team-tbd.svg';
-    return src ? `<img src="${teamEscape(src)}" alt="" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'placeholder',textContent:'TEAM'}))">` : '<div class="placeholder">TEAM</div>';
+function teamLogo(url, darkUrl) {
+    // 暗色主题优先 PandaScore 暗色队标（白色版），主题切换由 tournament-logos.js 换源
+    const resolve = value => (typeof proxiedLogoUrl === 'function' ? proxiedLogoUrl(value) : value);
+    const light = resolve(url) || '/images/team-tbd.svg';
+    const dark = resolve(darkUrl);
+    const useDark = dark && document.documentElement.getAttribute('data-theme') === 'dark';
+    const src = useDark ? dark : light;
+    return `<img src="${teamEscape(src)}" data-team-logo data-light="${teamEscape(light || '')}" data-dark="${teamEscape(dark || '')}" data-try="${useDark ? 'dark' : 'light'}" data-variant="${useDark ? 'dark' : 'light'}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="teamLogoError(this)">`;
 }
 
 function teamGameName(game) { return game === 'valorant' ? 'Valorant' : 'CS2'; }
 function teamRecord(row) { return `${row.win_count || 0}胜 ${row.loss_count || 0}负`; }
 
 function teamCard(team) {
-    return `<a class="team-card" href="/teams.html?team=${team.id}">
-        <div class="team-card-logo">${teamLogo(team.logo_url)}</div>
+    const played = team.match_count || 0;
+    const wins = team.win_count || 0;
+    const rate = played ? Math.round((wins / played) * 100) : 0;
+    return `<a class="team-card ${team.game_type}" href="/teams.html?team=${team.id}">
+        <div class="team-card-logo">${teamLogo(team.logo_url, team.dark_logo_url)}</div>
         <div class="team-card-body">
-            <div class="team-card-top"><span class="game-pill ${team.game_type}">${teamGameName(team.game_type)}</span><span>${team.match_count || 0} 场已结算</span></div>
+            <div class="team-card-top"><span class="game-pill ${team.game_type}">${teamGameName(team.game_type)}</span><span>${played} 场已结算</span></div>
             <h3>${teamEscape(team.short_name || team.name)}</h3>
             <p>${teamEscape(team.name)}${team.country ? ` · ${teamEscape(team.country)}` : ''}</p>
-            <div class="team-card-foot"><strong>${team.win_count || 0} 胜</strong><span>${team.upcoming_count || 0} 场待赛</span></div>
+            <div class="team-card-foot"><strong>${wins} 胜 ${played - wins} 负</strong><span>${team.upcoming_count || 0} 场待赛</span></div>
+            ${played ? `<div class="team-card-rate" title="已结算比赛胜率"><span class="rate-track"><i style="width:${rate}%"></i></span><b>${rate}%</b></div>` : ''}
         </div>
     </a>`;
 }
@@ -50,16 +65,25 @@ function teamMatchRow(match, teamId) {
     const result = matchResultLabel(match, teamId);
     return `<article class="team-match-row">
         <div class="team-match-result ${result.className}">${result.label}</div>
-        <div class="team-match-opponent">${teamLogo(isTeam1 ? match.team2_logo_url : match.team1_logo_url)}<div><strong>${teamEscape(opponent)}</strong><small>${teamEscape(match.tournament_name)}${match.stage_name ? ` · ${teamEscape(match.stage_name)}` : ''}</small></div></div>
+        <div class="team-match-opponent">${teamLogo(isTeam1 ? match.team2_logo_url : match.team1_logo_url, isTeam1 ? match.team2_dark_logo_url : match.team1_dark_logo_url)}<div><strong>${teamEscape(opponent)}</strong><small>${teamEscape(match.tournament_name)}${match.stage_name ? ` · ${teamEscape(match.stage_name)}` : ''}</small></div></div>
         <div class="team-match-score">${match.status === 'finished' ? `${own} : ${other}` : 'VS'}</div>
         <time>${typeof formatDateTime === 'function' ? formatDateTime(match.match_time) : teamEscape(match.match_time)}</time>
     </article>`;
 }
 
+// 阶段名次徽章分级配色：冠军金 / 亚军银 / 四强铜 / 八强蓝灰
+function placementClass(placement) {
+    if (placement === '冠军') return 'place-1';
+    if (placement === '亚军') return 'place-2';
+    if (placement === '四强') return 'place-3';
+    if (placement === '八强') return 'place-4';
+    return '';
+}
+
 function tournamentHistoryRow(row) {
     return `<article class="team-history-row">
         <div><span class="game-pill ${row.game_type}">${teamGameName(row.game_type)}</span><strong>${teamEscape(row.tournament_name)}</strong><small>${row.finished_count || 0}/${row.match_count || 0} 场完成</small></div>
-        <b class="team-placement">${teamEscape(row.placement)}</b>
+        <b class="team-placement ${placementClass(row.placement)}">${teamEscape(row.placement)}</b>
         <span>${teamRecord(row)} · ${row.win_rate || 0}% 胜率</span>
     </article>`;
 }
@@ -67,10 +91,10 @@ function tournamentHistoryRow(row) {
 function teamDetail(data) {
     const team = data.team;
     const stats = data.stats || {};
-    return `<div class="team-detail-head">
+    return `<div class="team-detail-head ${team.game_type}">
         <button class="button ghost team-back" onclick="closeTeamDetail()">返回队伍列表</button>
-        <div class="team-identity"><div class="team-detail-logo">${teamLogo(team.logo_url)}</div><div><span class="game-pill ${team.game_type}">${teamGameName(team.game_type)}</span><h2>${teamEscape(team.name)}</h2><p>${teamEscape(team.short_name || '')}${team.country ? ` · ${teamEscape(team.country)}` : ''}</p></div></div>
-        <div class="team-stat-grid"><span><b>${stats.match_count || 0}</b>已赛</span><span><b>${stats.win_count || 0}</b>胜场</span><span><b>${stats.win_rate || 0}%</b>胜率</span><span><b>${stats.upcoming_count || 0}</b>待赛</span></div>
+        <div class="team-identity"><div class="team-detail-logo">${teamLogo(team.logo_url, team.dark_logo_url)}</div><div><span class="game-pill ${team.game_type}">${teamGameName(team.game_type)}</span><h2>${teamEscape(team.name)}</h2><p>${teamEscape(team.short_name || '')}${team.country ? ` · ${teamEscape(team.country)}` : ''}</p></div></div>
+        <div class="team-stat-grid"><span><b>${stats.match_count || 0}</b>已赛</span><span><b>${stats.win_count || 0}</b>胜场</span><span class="stat-rate"><b>${stats.win_rate || 0}%</b>胜率</span><span><b>${stats.upcoming_count || 0}</b>待赛</span></div>
     </div>
     <div class="team-detail-grid">
         <section class="panel team-history"><div class="section-head"><h3>赛事履历</h3><span>近期参赛记录与阶段名次</span></div>${data.tournaments?.map(tournamentHistoryRow).join('') || '<div class="empty-state">暂无赛事履历</div>'}</section>
@@ -89,6 +113,8 @@ async function loadTeams() {
     teamsGrid.innerHTML = '<div class="loading-text">加载队伍中...</div>';
     const params = new URLSearchParams();
     if (teamState.game) params.set('game_type', teamState.game);
+    if (teamState.sort) params.set('sort', teamState.sort);
+    if (teamState.activity) params.set('activity', teamState.activity);
     if (teamState.search.trim()) params.set('q', teamState.search.trim());
     try {
         const data = await sharedApi(`/teams?${params}`);
@@ -119,6 +145,8 @@ function closeTeamDetail() {
 }
 
 teamGameFilter?.addEventListener('change', () => { teamState.game = teamGameFilter.value; localStorage.setItem('teamGameFilter', teamState.game); loadTeams(); });
+teamSort?.addEventListener('change', () => { teamState.sort = teamSort.value; localStorage.setItem('teamSort', teamState.sort); loadTeams(); });
+teamActivity?.addEventListener('change', () => { teamState.activity = teamActivity.value; localStorage.setItem('teamActivity', teamState.activity); loadTeams(); });
 teamSearch?.addEventListener('input', () => { teamState.search = teamSearch.value; clearTimeout(teamSearch._timer); teamSearch._timer = setTimeout(loadTeams, 180); });
 window.openTeamDetail = openTeamDetail;
 window.closeTeamDetail = closeTeamDetail;

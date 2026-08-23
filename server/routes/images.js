@@ -3,14 +3,56 @@ const http = require('http');
 const https = require('https');
 const dns = require('dns').promises;
 const net = require('net');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const db = require('../config/database');
 
 const router = express.Router();
 const MAX_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 12000;
 
+// logo 磁盘缓存：同一 logo 全站只回源一次，后续请求（含其他用户）直接读本地文件。
+// logo URL 内容基本不变，缓存不设过期；如需刷新删除 data/logo-cache/ 目录即可。
+const LOGO_CACHE_DIR = path.join(__dirname, '..', '..', 'data', 'logo-cache');
+let logoCacheDirReady = false;
+
+function logoCachePath(url) {
+    return path.join(LOGO_CACHE_DIR, crypto.createHash('sha1').update(url).digest('hex'));
+}
+
+async function readLogoCache(url) {
+    try {
+        const [body, meta] = await Promise.all([
+            fs.promises.readFile(logoCachePath(url)),
+            fs.promises.readFile(`${logoCachePath(url)}.meta`, 'utf8')
+        ]);
+        return { contentType: JSON.parse(meta).contentType, body };
+    } catch (error) {
+        return null;
+    }
+}
+
+async function writeLogoCache(url, image) {
+    try {
+        if (!logoCacheDirReady) {
+            fs.mkdirSync(LOGO_CACHE_DIR, { recursive: true });
+            logoCacheDirReady = true;
+        }
+        const file = logoCachePath(url);
+        const temp = `${file}.${process.pid}.tmp`;
+        await fs.promises.writeFile(temp, image.body);
+        await fs.promises.rename(temp, file);
+        await fs.promises.writeFile(`${file}.meta`, JSON.stringify({ contentType: image.contentType }));
+    } catch (error) {
+        // 缓存写盘失败不影响本次响应
+    }
+}
+
+// 只代理已注册的 logo URL（队伍表或赛事表里存的），防止代理被滥用为任意图片跳板
 function isKnownTeamLogo(url) {
-    return !!db.prepare('SELECT id FROM teams WHERE logo_url = ? LIMIT 1').get(url);
+    return !!db.prepare('SELECT id FROM teams WHERE logo_url = ? OR dark_logo_url = ? LIMIT 1').get(url, url)
+        || !!db.prepare('SELECT id FROM tournaments WHERE logo_url = ? LIMIT 1').get(url);
 }
 
 // 拦截内网/回环/链路本地/元数据地址，防止 SSRF 打到内部服务
@@ -144,7 +186,11 @@ router.get('/team-logo', async (req, res) => {
     }
 
     try {
-        const image = await fetchImage(rawUrl);
+        let image = await readLogoCache(rawUrl);
+        if (!image) {
+            image = await fetchImage(rawUrl);
+            await writeLogoCache(rawUrl, image);
+        }
         res.set({
             'Content-Type': image.contentType,
             'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
@@ -160,3 +206,5 @@ router.get('/team-logo', async (req, res) => {
 });
 
 module.exports = router;
+// 供管理端上传路由复用的图片格式嗅探（按 magic bytes 判定，不信任 Content-Type）
+module.exports.sniffImageType = sniffImageType;

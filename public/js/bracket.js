@@ -175,7 +175,8 @@ function teamSnapshot(match, side) {
         id: match[`${prefix}_id`],
         name: match[`${prefix}_name`] || 'TBD',
         shortName: match[`${prefix}_short_name`] || match[`${prefix}_name`] || 'TBD',
-        logo: match[`${prefix}_logo_url`]
+        logo: match[`${prefix}_logo_url`],
+        darkLogo: match[`${prefix}_dark_logo_url`]
     };
 }
 
@@ -361,13 +362,14 @@ function swissGraphLabel(label) {
 function swissMatchLogo(match, side) {
     const name = side === 1 ? match.team1_name : match.team2_name;
     const logo = side === 1 ? match.team1_logo_url : match.team2_logo_url;
+    const darkLogo = side === 1 ? match.team1_dark_logo_url : match.team2_dark_logo_url;
     const won = match.status === 'finished' && (side === 1
         ? Number(match.team1_score) > Number(match.team2_score)
         : Number(match.team2_score) > Number(match.team1_score));
     // TBD / 骨架占位：直接渲染「?」盾牌，不走 logo 代理。
     const logoNode = (name || '') === 'TBD' || match.__placeholder
         ? `<span class="sw2-logo tbd">${TBD_SHIELD}</span>`
-        : `<span class="sw2-logo ${won ? 'winner' : ''}">${logoHtml(logo)}</span>`;
+        : `<span class="sw2-logo ${won ? 'winner' : ''}">${logoHtml(logo, darkLogo)}</span>`;
     return `<span class="sw2-side ${won ? 'winner' : ''}">${logoNode}<b>${escapeHtml(teamShortName(match, side))}</b></span>`;
 }
 
@@ -401,7 +403,7 @@ function swissMatchNodeClean(match) {
 function swissResultTeamClean(entry) {
     // 空槽位（尚未产生的晋级/淘汰队）用「?」盾牌占位。
     if (!entry || entry.__placeholder) return `<span class="sw2-result-team tbd">${TBD_SHIELD}</span>`;
-    return `<span class="sw2-result-team" title="${escapeHtml(entry.team.name)}">${logoHtml(entry.team.logo)}</span>`;
+    return `<span class="sw2-result-team" title="${escapeHtml(entry.team.name)}">${logoHtml(entry.team.logo, entry.team.darkLogo)}</span>`;
 }
 
 function swissResultBucketsForLabels(finalBuckets, labels) {
@@ -577,13 +579,14 @@ function playoffTeamRowClean(match, side) {
     const finished = match.status === 'finished';
     const won = finished && ((side === 1 && Number(match.team1_score) > Number(match.team2_score)) || (side === 2 && Number(match.team2_score) > Number(match.team1_score)));
     const logo = side === 1 ? match.team1_logo_url : match.team2_logo_url;
+    const darkLogo = side === 1 ? match.team1_dark_logo_url : match.team2_dark_logo_url;
     const name = side === 1 ? match.team1_name : match.team2_name;
     const isTbd = (name || '') === 'TBD' || match.__placeholder;
     // 只有已结束的比赛才分胜/负（绿/红条）；未结束（含 TBD）一律中性 pending，不显示红条。
     const tone = won ? 'winner' : finished ? 'loser' : 'pending';
     return `<div class="pb2-team ${tone}">
         <span class="pb2-bar"></span>
-        ${isTbd ? TBD_SHIELD : logoHtml(logo)}
+        ${isTbd ? TBD_SHIELD : logoHtml(logo, darkLogo)}
         <b>${escapeHtml(teamShortName(match, side))}</b>
         <strong>${finished ? escapeHtml(score ?? 0) : '-'}</strong>
     </div>`;
@@ -633,6 +636,7 @@ function bracketTeamRowClean(match, side, prefix = 'de', flow = null) {
     const score = side === 1 ? match.team1_score : match.team2_score;
     const state = bracketTeamState(match, side, flow);
     const logo = side === 1 ? match.team1_logo_url : match.team2_logo_url;
+    const darkLogo = side === 1 ? match.team1_dark_logo_url : match.team2_dark_logo_url;
     const marker = state.marker === 'drop'
         ? '<span class="de-flow drop" title="掉入败者组" aria-label="掉入败者组">↓</span>'
         : state.marker === 'advance'
@@ -640,7 +644,7 @@ function bracketTeamRowClean(match, side, prefix = 'de', flow = null) {
             : '<span class="de-flow" aria-hidden="true"></span>';
     return `<div class="${prefix}-team ${state.tone}">
         <span class="${prefix}-bar"></span>
-        ${logoHtml(logo)}
+        ${logoHtml(logo, darkLogo)}
         <b>${escapeHtml(teamShortName(match, side))}</b>
         ${marker}
         <strong>${state.finished ? escapeHtml(score ?? 0) : '-'}</strong>

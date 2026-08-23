@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
     <meta charset="utf-8">
@@ -7,6 +7,8 @@
     <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
     <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
     <link rel="stylesheet" href="/css/style.css">
+    <!-- 主题脚本置于 head 内同步执行：首帧渲染前写入 data-theme，避免暗色模式下页面闪白 -->
+    <script src="/js/theme.js"></script>
 </head>
 <body>
     <header class="hero compact">
@@ -46,8 +48,17 @@
                     <span><b id="statSettled">0</b>已结算</span>
                     <span><b id="statPoints">0</b>总积分</span>
                     <span><b id="statRate">0%</b>得分率</span>
+                    <span><b id="statStreakBonus">0</b>连胜加成</span>
                 </div>
             </div>
+
+            <section class="panel">
+                <div class="section-head">
+                    <h2>我的连胜</h2>
+                    <button class="streak-rules-link" type="button" onclick="showStreakRules()">规则说明</button>
+                </div>
+                <div id="streakList" class="streak-list"></div>
+            </section>
 
             <section class="panel">
                 <div class="section-head"><h2>修改密码</h2></div>
@@ -62,7 +73,7 @@
             <section class="panel profile-records">
                 <div class="section-head">
                     <h2>我的预测记录</h2>
-                    <select id="profileStatus" onchange="renderPredictions()">
+                    <select id="profileStatus" onchange="resetAndRenderPredictions()">
                         <option value="">全部记录</option>
                         <option value="finished">已结算</option>
                         <option value="pending">未结算</option>
@@ -82,6 +93,8 @@
         </div>
     </footer>
 
+    <script src="/js/tournament-logos.js"></script>
+    <script src="/js/streak.js"></script>
     <script src="/js/shared.js"></script>
     <script src="/js/profile.js"></script>
 </body>

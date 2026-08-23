@@ -1,7 +1,7 @@
-﻿const bcrypt = require('bcryptjs');
+const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const db = require('./database');
-const { settleMatch, recalculateUserScores } = require('../utils/settlement');
+const { settleMatch, recalculateUserScores, recalculateStreakBonuses } = require('../utils/settlement');
 
 function ensureDatabase() {
     db.exec(`
@@ -119,6 +119,16 @@ function ensureDatabase() {
         db.exec('ALTER TABLE tournaments ADD COLUMN name_locked INTEGER NOT NULL DEFAULT 0');
         db.prepare("UPDATE tournaments SET name_locked = 1 WHERE external_source = 'pandascore'").run();
     }
+    if (!tournamentColumns.includes('logo_url')) {
+        // 厂牌 logo（ESL/IEM/BLAST/PGL/VCT 等）：来自 PandaScore league.image_url，
+        // 定时同步自动回填，用于前端赛事标识展示。
+        db.exec('ALTER TABLE tournaments ADD COLUMN logo_url TEXT');
+    }
+    if (!teamColumns.includes('dark_logo_url')) {
+        // 暗色主题专用队标：来自 PandaScore dark_mode_image_url（白色版），
+        // 数据源确认无合适对比度时为 null，前端回退原 logo + 浅色底板。
+        db.exec('ALTER TABLE teams ADD COLUMN dark_logo_url TEXT');
+    }
 
 
     const matchColumns = db.prepare('PRAGMA table_info(matches)').all().map(column => column.name);
@@ -134,6 +144,21 @@ function ensureDatabase() {
     if (!matchColumns.includes('is_forfeit')) {
         // 弃权标记：PandaScore 对弃权局返回 canceled + winner_id，按 1-0 记录但不计入积分。
         db.exec('ALTER TABLE matches ADD COLUMN is_forfeit INTEGER NOT NULL DEFAULT 0');
+    }
+
+    const predictionColumns = db.prepare('PRAGMA table_info(predictions)').all().map(column => column.name);
+    if (!predictionColumns.includes('streak_bonus')) {
+        // 连胜加成：连胜达到档位后每场预测的额外加分，与基础分分开记录。
+        // 首次加列后对存量预测按赛事回填加成并重建总分（幂等重算）。
+        db.exec('ALTER TABLE predictions ADD COLUMN streak_bonus INTEGER');
+        const backfill = db.transaction(() => {
+            // predictions 无 tournament_id，经 matches 关联取涉及预测的赛事
+            const tournaments = db.prepare('SELECT DISTINCT m.tournament_id id FROM predictions p JOIN matches m ON m.id = p.match_id').all();
+            for (const row of tournaments) recalculateStreakBonuses(row.id);
+            recalculateUserScores();
+        });
+        backfill();
+        console.log('[init-db] 已启用连胜加成并为存量预测回填 streak_bonus');
     }
 
     // 历史弃权局回填：旧逻辑把 PandaScore 的 canceled+winner 弃权局只记成 cancelled、

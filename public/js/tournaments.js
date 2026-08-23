@@ -75,12 +75,13 @@ function teamBlock(match, side) {
     const name = match[`${prefix}_name`] || 'TBD';
     const shortName = match[`${prefix}_short_name`] || name;
     const logo = match[`${prefix}_logo_url`];
+    const darkLogo = match[`${prefix}_dark_logo_url`];
     const won = match.status === 'finished' && ((side === 1 && match.team1_score > match.team2_score) || (side === 2 && match.team2_score > match.team1_score));
     const tbd = name === 'TBD';
     const tag = tbd ? 'div' : 'a';
     const href = tbd ? '' : ` href="/teams.html?team=${match[`${prefix}_id`]}" onclick="event.stopPropagation()"`;
     return `<${tag} class="archive-team team-link ${won ? 'winner' : ''} ${tbd ? 'tbd-team' : ''}"${href}>
-        ${logoHtml(logo)}
+        ${logoHtml(logo, darkLogo)}
         <div><strong>${escapeHtml(shortName)}</strong><small>${escapeHtml(name)}</small></div>
     </${tag}>`;
 }
@@ -173,12 +174,13 @@ function tournamentCard(tournament) {
     const predictions = tournament.prediction_count || 0;
     const ongoing = tournament.ongoing_count || 0;
     const upcoming = tournament.upcoming_count || 0;
-    const status = total > 0 && finished >= total ? '已结束' : '进行中';
+    const isDone = total > 0 && finished >= total;
+    const status = isDone ? '已结束' : '进行中';
     const progress = total ? Math.round((finished / total) * 100) : 0;
-    return `<article class="tournament-card archive-tournament panel" data-id="${tournament.id}" onclick="openTournamentPage(${tournament.id})">
+    return `<article class="tournament-card archive-tournament panel ${tournament.game_type}" data-id="${tournament.id}" onclick="openTournamentPage(${tournament.id})">
         <div class="tournament-card-head archive-tournament-head">
             <div class="archive-tournament-title">
-                <div><span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span><span class="archive-tournament-state ${ongoing ? 'live' : ''}">${ongoing ? `${ongoing} 场进行中` : status}</span></div>
+                <div>${tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url)}<span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span><span class="archive-tournament-state ${ongoing ? 'live' : ''}">${ongoing ? `<i class="live-dot"></i>${ongoing} 场进行中` : status}</span></div>
                 <h2 title="${escapeHtml(tournament.name)}">${escapeHtml(tournament.name)}</h2>
                 <p>${formatDateTime(tournament.begin_at)}${tournament.end_at ? ` - ${formatDateTime(tournament.end_at)}` : ''}</p>
             </div>
@@ -191,7 +193,7 @@ function tournamentCard(tournament) {
             <span><b>${predictions}</b>人次预测</span>
             <span><b>${progress}%</b>完成</span>
         </div>
-        <div class="tournament-progress"><i style="width:${progress}%"></i></div>
+        <div class="tournament-progress ${isDone ? 'done' : ongoing ? 'live' : ''}"><i style="width:${progress}%"></i></div>
     </article>`;
 }
 
@@ -209,15 +211,16 @@ function tournamentDetailPage(data) {
         : `<div class="bracket-integrity-warning">赛程数据不完整：已归类 ${stageTotal}/${matches.length} 场</div>`;
     return `<section class="tournament-focus panel">
         <button class="button ghost tournament-back" onclick="backToTournamentList()">返回赛事列表</button>
-        <div class="tournament-focus-head">
+        <div class="tournament-focus-head ${tournament.game_type}">
             <div>
+                ${tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url)}
                 <span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>
                 <h2>${escapeHtml(tournament.name)}</h2>
                 <p>${formatDateTime(tournament.begin_at)} ${tournament.end_at ? `- ${formatDateTime(tournament.end_at)}` : ''}</p>
             </div>
             <div class="tournament-focus-stats">
                 <span><b>${total}</b>比赛</span>
-                <span><b>${finished}</b>已结算</span>
+                <span class="stat-done"><b>${finished}</b>已结算</span>
                 <span><b>${predictions}</b>预测</span>
             </div>
         </div>

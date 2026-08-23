@@ -1,4 +1,4 @@
-﻿const sharedState = {
+const sharedState = {
     token: localStorage.getItem('token'),
     user: JSON.parse(localStorage.getItem('user') || 'null')
 };
@@ -88,10 +88,18 @@ function proxiedLogoUrl(url) {
     return `/api/images/team-logo?url=${encodeURIComponent(url)}`;
 }
 
-function logoHtml(url) {
-    const src = proxiedLogoUrl(url);
-    return src ? `<img src="${src}" alt="" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'placeholder',textContent:'TEAM'}))">` : '<div class="placeholder">TEAM</div>';
+function logoHtml(url, darkUrl) {
+    // 暗色主题优先 PandaScore 暗色队标（白色版），主题切换由 tournament-logos.js 换源
+    const light = proxiedLogoUrl(url);
+    const dark = proxiedLogoUrl(darkUrl);
+    const useDark = dark && document.documentElement.getAttribute('data-theme') === 'dark';
+    const src = useDark ? dark : light;
+    if (!src) return '<div class="placeholder">TEAM</div>';
+    return `<img src="${src}" data-team-logo data-light="${light || ''}" data-dark="${dark || ''}" data-try="${useDark ? 'dark' : 'light'}" data-variant="${useDark ? 'dark' : 'light'}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="teamLogoError(this)">`;
 }
+
+// 赛事厂牌 logo 的匹配与渲染在 /js/tournament-logos.js（公共模块，需先于本文件加载）：
+// tournamentLogoUrl / tournamentLogo（上传 logo > 精选映射，远端 URL 不使用）。
 
 window.sharedApi = sharedApi;
 window.renderSharedUser = renderSharedUser;

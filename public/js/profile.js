@@ -1,4 +1,5 @@
-﻿const profileState = { predictions: [], stats: null };
+const profileState = { predictions: [], stats: null, streaks: [], visibleCount: 20 };
+const PREDICTION_PAGE_SIZE = 20;
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -29,12 +30,12 @@ function predictionCard(prediction) {
             ${predictionStatus(prediction)}
         </div>
         <div class="prediction-matchup">
-            <div>${logoHtml(prediction.team1_logo_url)}<strong>${escapeHtml(team1)}</strong></div>
+            <div>${logoHtml(prediction.team1_logo_url, prediction.team1_dark_logo_url)}<strong>${escapeHtml(team1)}</strong></div>
             <div class="prediction-score">
                 <span>预测 ${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>
                 <b>${actualScore(prediction)}</b>
             </div>
-            <div>${logoHtml(prediction.team2_logo_url)}<strong>${escapeHtml(team2)}</strong></div>
+            <div>${logoHtml(prediction.team2_logo_url, prediction.team2_dark_logo_url)}<strong>${escapeHtml(team2)}</strong></div>
         </div>
         <div class="prediction-card-foot">
             <span>${escapeHtml(prediction.match_name || '常规赛程')}</span>
@@ -58,7 +59,34 @@ function filteredPredictions() {
 
 function renderPredictions() {
     const predictions = filteredPredictions();
-    predictionList.innerHTML = predictions.map(predictionCard).join('') || '<div class="empty-state"><h3>暂无预测记录</h3><p>提交预测后会在这里显示。</p></div>';
+    if (!predictions.length) {
+        predictionList.innerHTML = '<div class="empty-state"><h3>暂无预测记录</h3><p>提交预测后会在这里显示。</p></div>';
+        return;
+    }
+    // 分页渲染：全量渲染上百张卡片会拖慢长列表（移动端尤甚）
+    const visible = predictions.slice(0, profileState.visibleCount);
+    const remaining = predictions.length - visible.length;
+    predictionList.innerHTML = visible.map(predictionCard).join('')
+        + (remaining > 0 ? `<button class="ghost load-more-btn" onclick="loadMorePredictions()">显示更多（剩余 ${remaining} 条）</button>` : '');
+}
+
+function loadMorePredictions() {
+    profileState.visibleCount += PREDICTION_PAGE_SIZE;
+    renderPredictions();
+}
+
+// 连胜列表：仅显示有连胜记录的赛事，按当前连胜降序、最长连胜次之
+function renderStreaks() {
+    const streaks = (profileState.streaks || []).filter(item => item.current > 0 || item.best > 0)
+        .sort((a, b) => (b.current - a.current) || (b.best - a.best));
+    if (!streaks.length) {
+        streakList.innerHTML = '<div class="empty-state"><h3>暂无连胜记录</h3><p>在赛事中连续猜对即可累积连胜并获得额外加分。</p></div>';
+        return;
+    }
+    streakList.innerHTML = streaks.map(item => `<div class="streak-item">
+        <span class="streak-name"><b>${escapeHtml(item.tournament_name)}</b><small>${gameName(item.game_type)}</small></span>
+        <span class="streak-val">${streakBadgeHtml(item.current)}<span>最长 ${item.best} 轮</span></span>
+    </div>`).join('');
 }
 
 function renderSummary() {
@@ -72,6 +100,7 @@ function renderSummary() {
     statSettled.textContent = settled;
     statPoints.textContent = stats.points || 0;
     statRate.textContent = settled ? `${Math.round((correct / settled) * 100)}%` : '0%';
+    if (statStreakBonus) statStreakBonus.textContent = `+${stats.streak_bonus || 0}`;
 }
 
 async function loadProfile() {
@@ -85,7 +114,9 @@ async function loadProfile() {
     const data = await sharedApi('/predictions/my');
     profileState.predictions = data.predictions;
     profileState.stats = data.stats;
+    profileState.streaks = data.streaks || [];
     renderSummary();
+    renderStreaks();
     renderPredictions();
 }
 
@@ -101,7 +132,13 @@ async function changePassword() {
     } catch (error) { alert(error.message); }
 }
 
-window.renderPredictions = renderPredictions;
+// 筛选切换时回到第一页再渲染（不能直接覆盖 renderPredictions，会形成无限递归）
+function resetAndRenderPredictions() {
+    profileState.visibleCount = PREDICTION_PAGE_SIZE;
+    renderPredictions();
+}
+window.resetAndRenderPredictions = resetAndRenderPredictions;
+window.loadMorePredictions = loadMorePredictions;
 window.changePassword = changePassword;
 window.addEventListener('auth-changed', loadProfile);
 loadProfile().catch(error => {

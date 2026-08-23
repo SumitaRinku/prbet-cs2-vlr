@@ -1,10 +1,13 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/database');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const { syncPandascoreMatches, syncStatus } = require('../services/pandascoreService');
 const { isValidScore } = require('../utils/scoring');
-const { settleMatch, recalculateUserScores } = require('../utils/settlement');
+const { settleMatch, recalculateUserScores, recalculateStreakBonuses } = require('../utils/settlement');
+const { sniffImageType } = require('./images');
 
 const router = express.Router();
 router.use(authenticateToken, requireAdmin);
@@ -126,6 +129,43 @@ router.post('/tournaments', (req, res) => {
     if (!['cs2', 'valorant'].includes(game_type)) return res.status(400).json({ error: '游戏类型无效' });
     const result = db.prepare('INSERT INTO tournaments (name, game_type, is_active, name_locked, begin_at, end_at) VALUES (?, ?, ?, 1, ?, ?)').run(name, game_type, is_active ? 1 : 0, begin_at || null, end_at || null);
     res.status(201).json({ id: result.lastInsertRowid });
+});
+
+// ===== 赛事 logo 手动上传 =====
+// 二进制 body 直传（不走 JSON），配合 express.raw 限制体积；格式以 magic bytes 嗅探为准。
+const TOURNAMENT_LOGO_DIR = path.join(__dirname, '..', '..', 'data', 'uploads', 'tournament');
+const LOGO_EXT_BY_MIME = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+
+// 仅清理本功能管理的上传文件；basename 限定目录，防路径穿越
+function removeTournamentLogoFile(logoUrl) {
+    if (typeof logoUrl !== 'string' || !logoUrl.startsWith('/uploads/tournament/')) return;
+    fs.rm(path.join(TOURNAMENT_LOGO_DIR, path.basename(logoUrl)), { force: true }, () => {});
+}
+
+router.put('/tournaments/:id/logo', express.raw({ type: ['image/*', 'application/octet-stream'], limit: `${LOGO_MAX_BYTES + 1024} bytes` }), (req, res) => {
+    const tournament = db.prepare('SELECT id, logo_url FROM tournaments WHERE id = ?').get(req.params.id);
+    if (!tournament) return res.status(404).json({ error: '赛事不存在' });
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length === 0) return res.status(400).json({ error: '请选择要上传的图片文件' });
+    if (body.length > LOGO_MAX_BYTES) return res.status(400).json({ error: '图片不能超过 2MB' });
+    const mime = sniffImageType(body);
+    if (!mime || !LOGO_EXT_BY_MIME[mime]) return res.status(400).json({ error: '仅支持 PNG / JPEG / GIF / WebP 格式' });
+    fs.mkdirSync(TOURNAMENT_LOGO_DIR, { recursive: true });
+    removeTournamentLogoFile(tournament.logo_url);
+    const filename = `${tournament.id}.${LOGO_EXT_BY_MIME[mime]}`;
+    fs.writeFileSync(path.join(TOURNAMENT_LOGO_DIR, filename), body);
+    const logoUrl = `/uploads/tournament/${filename}`;
+    db.prepare('UPDATE tournaments SET logo_url = ? WHERE id = ?').run(logoUrl, tournament.id);
+    res.json({ logo_url: logoUrl });
+});
+
+router.delete('/tournaments/:id/logo', (req, res) => {
+    const tournament = db.prepare('SELECT id, logo_url FROM tournaments WHERE id = ?').get(req.params.id);
+    if (!tournament) return res.status(404).json({ error: '赛事不存在' });
+    removeTournamentLogoFile(tournament.logo_url);
+    db.prepare('UPDATE tournaments SET logo_url = NULL WHERE id = ?').run(tournament.id);
+    res.json({ message: '已清除手动 logo，回退到名称匹配的默认 logo' });
 });
 
 router.put('/tournaments/:id', (req, res) => {
@@ -257,6 +297,7 @@ router.put('/matches/:id', (req, res) => {
         // 赛果修正走 /result 接口，那里始终重新结算。
         if (nextStatus === 'finished' && existing.status !== 'finished') {
             settleMatch(existing.id);
+            recalculateStreakBonuses(existing.tournament_id);
             recalculateUserScores();
         }
         return result;
@@ -277,6 +318,7 @@ router.put('/matches/:id/result', (req, res) => {
             UPDATE matches SET team1_score = ?, team2_score = ?, winner_team_id = ?, status = 'finished', betting_enabled = 0 WHERE id = ?
         `).run(team1Score, team2Score, winnerId, match.id);
         const processed = settleMatch(match.id);
+        recalculateStreakBonuses(match.tournament_id);
         recalculateUserScores();
         return processed;
     });
@@ -297,6 +339,7 @@ router.put('/matches/:id/forfeit', (req, res) => {
             UPDATE matches SET is_forfeit = 1, status = 'finished', team1_score = ?, team2_score = ?, winner_team_id = ?, betting_enabled = 0 WHERE id = ?
         `).run(team1Score, team2Score, winnerId, match.id);
         const processed = settleMatch(match.id);
+        recalculateStreakBonuses(match.tournament_id);
         recalculateUserScores();
         return processed;
     });
@@ -313,8 +356,10 @@ router.put('/matches/:id/betting', (req, res) => {
 });
 
 router.delete('/matches/:id', (req, res) => {
-    const result = db.prepare('DELETE FROM matches WHERE id = ?').run(req.params.id);
-    if (result.changes === 0) return res.status(404).json({ error: '比赛不存在' });
+    const match = db.prepare('SELECT id, tournament_id FROM matches WHERE id = ?').get(req.params.id);
+    if (!match) return res.status(404).json({ error: '比赛不存在' });
+    db.prepare('DELETE FROM matches WHERE id = ?').run(match.id);
+    recalculateStreakBonuses(match.tournament_id);
     recalculateUserScores();
     res.json({ message: '比赛已删除' });
 });
@@ -334,8 +379,10 @@ router.get('/predictions', (req, res) => {
 });
 
 router.delete('/predictions/:id', (req, res) => {
-    const result = db.prepare('DELETE FROM predictions WHERE id = ?').run(req.params.id);
-    if (result.changes === 0) return res.status(404).json({ error: '预测不存在' });
+    const prediction = db.prepare('SELECT p.id, m.tournament_id FROM predictions p JOIN matches m ON m.id = p.match_id WHERE p.id = ?').get(req.params.id);
+    if (!prediction) return res.status(404).json({ error: '预测不存在' });
+    db.prepare('DELETE FROM predictions WHERE id = ?').run(prediction.id);
+    recalculateStreakBonuses(prediction.tournament_id);
     recalculateUserScores();
     res.json({ message: '预测已删除' });
 });

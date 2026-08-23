@@ -6,6 +6,9 @@ data/*.sqlite*
 data/*.backup*
 data/.jwt_secret
 
+# 队标/赛事 logo 代理磁盘缓存（可随时删除重建）
+data/logo-cache/
+
 # 环境变量（含 API Token / 密钥，切勿提交）
 .env
 .env.local

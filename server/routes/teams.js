@@ -4,6 +4,16 @@ const db = require('../config/database');
 const router = express.Router();
 const NOT_TBD = "t.name <> 'TBD'";
 
+// 队伍列表排序白名单：聚合列别名（match_count/win_count 等）在 SQLite 中可用于 ORDER BY；
+// 无比赛记录的队伍除"已赛最多/名称"外一律沉底。
+const TEAM_SORTS = {
+    recent: 'CASE WHEN match_count > 0 THEN 0 ELSE 1 END, last_match_time DESC, t.name COLLATE NOCASE ASC',
+    win_rate: 'CASE WHEN match_count > 0 THEN 0 ELSE 1 END, CASE WHEN match_count > 0 THEN win_count * 100.0 / match_count ELSE 0 END DESC, win_count DESC, t.name COLLATE NOCASE ASC',
+    wins: 'CASE WHEN match_count > 0 THEN 0 ELSE 1 END, win_count DESC, match_count ASC, t.name COLLATE NOCASE ASC',
+    played: 'match_count DESC, last_match_time DESC, t.name COLLATE NOCASE ASC',
+    name: 't.name COLLATE NOCASE ASC'
+};
+
 function parseLimit(value, fallback = 20, max = 100) {
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : fallback;
@@ -36,6 +46,7 @@ function teamSummary(row) {
         name: row.name,
         short_name: row.short_name,
         logo_url: row.logo_url,
+        dark_logo_url: row.dark_logo_url || null,
         country: row.country,
         game_type: row.game_type,
         external_source: row.external_source
@@ -44,6 +55,8 @@ function teamSummary(row) {
 
 router.get('/', (req, res) => {
     const { game_type, q } = req.query;
+    const sort = TEAM_SORTS[req.query.sort] ? req.query.sort : 'recent';
+    const activity = ['active', 'upcoming'].includes(req.query.activity) ? req.query.activity : '';
     const params = [];
     let where = `WHERE ${NOT_TBD}`;
     if (game_type && ['cs2', 'valorant'].includes(game_type)) {
@@ -55,6 +68,9 @@ router.get('/', (req, res) => {
         const keyword = `%${String(q).trim().toLowerCase()}%`;
         params.push(keyword, keyword);
     }
+    let having = '';
+    if (activity === 'active') having = 'HAVING match_count > 0';
+    else if (activity === 'upcoming') having = 'HAVING upcoming_count > 0';
     const limit = parseLimit(req.query.limit, 60, 100);
     const teams = db.prepare(`
         SELECT t.*,
@@ -67,7 +83,8 @@ router.get('/', (req, res) => {
             AND EXISTS (SELECT 1 FROM tournaments tour WHERE tour.id = m.tournament_id AND tour.is_active = 1)
         ${where}
         GROUP BY t.id
-        ORDER BY CASE WHEN match_count > 0 THEN 0 ELSE 1 END, last_match_time DESC, t.name COLLATE NOCASE ASC
+        ${having}
+        ORDER BY ${TEAM_SORTS[sort]}
         LIMIT ?
     `).all(...params, limit);
     res.json({ teams });
@@ -81,8 +98,8 @@ router.get('/:id', (req, res) => {
         SELECT m.id, m.name match_name, m.format, m.match_time, m.status, m.is_forfeit,
             m.team1_id, m.team2_id, m.team1_score, m.team2_score, m.winner_team_id,
             m.stage_name, m.stage_slug, tour.id tournament_id, tour.name tournament_name,
-            t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url,
-            t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url
+            t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url, t1.dark_logo_url team1_dark_logo_url,
+            t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url, t2.dark_logo_url team2_dark_logo_url
         FROM matches m
         JOIN tournaments tour ON tour.id = m.tournament_id
         JOIN teams t1 ON t1.id = m.team1_id

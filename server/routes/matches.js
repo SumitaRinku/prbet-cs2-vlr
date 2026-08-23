@@ -21,9 +21,9 @@ function isTbdMatch(match) {
 
 function matchSelect(where = '1=1') {
     return `
-        SELECT m.*, tour.name tournament_name, tour.game_type,
-            t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url,
-            t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url,
+        SELECT m.*, tour.name tournament_name, tour.game_type, tour.logo_url tournament_logo_url,
+            t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url, t1.dark_logo_url team1_dark_logo_url,
+            t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url, t2.dark_logo_url team2_dark_logo_url,
             (SELECT COUNT(*) FROM predictions p WHERE p.match_id = m.id) prediction_count
         FROM matches m
         JOIN tournaments tour ON tour.id = m.tournament_id
@@ -86,7 +86,7 @@ router.get('/upcoming', optionalAuth, (req, res) => {
     const tournamentWhere = baseWhere;
     const tournamentParams = [...baseParams];
     const tournaments = db.prepare(`
-        SELECT tour.id, tour.name, tour.game_type,
+        SELECT tour.id, tour.name, tour.game_type, tour.logo_url,
             COUNT(*) match_count,
             SUM(CASE WHEN ${HOME_PHASE_SQL} = 'finished' THEN 1 ELSE 0 END) finished_count,
             SUM(CASE WHEN ${HOME_PHASE_SQL} = 'ongoing' THEN 1 ELSE 0 END) ongoing_count,
@@ -212,8 +212,8 @@ router.get('/:id/head2head', (req, res) => {
 
     const recentFor = (teamId) => db.prepare(`
         SELECT m.team1_id, m.team2_id, m.team1_score, m.team2_score, m.winner_team_id, m.match_time,
-            t1.short_name team1_short_name, t1.name team1_name, t1.logo_url team1_logo_url,
-            t2.short_name team2_short_name, t2.name team2_name, t2.logo_url team2_logo_url,
+            t1.short_name team1_short_name, t1.name team1_name, t1.logo_url team1_logo_url, t1.dark_logo_url team1_dark_logo_url,
+            t2.short_name team2_short_name, t2.name team2_name, t2.logo_url team2_logo_url, t2.dark_logo_url team2_dark_logo_url,
             tour.id tournament_id, tour.name tournament_name
         FROM matches m
         JOIN teams t1 ON t1.id = m.team1_id
@@ -232,6 +232,7 @@ router.get('/:id/head2head', (req, res) => {
             opponent_id: isTeam1 ? row.team2_id : row.team1_id,
             opponent: isTeam1 ? (row.team2_short_name || row.team2_name) : (row.team1_short_name || row.team1_name),
             opponent_logo_url: isTeam1 ? row.team2_logo_url : row.team1_logo_url,
+            opponent_dark_logo_url: isTeam1 ? row.team2_dark_logo_url : row.team1_dark_logo_url,
             result: row.winner_team_id === teamId ? 'W' : 'L',
             score: isTeam1 ? `${row.team1_score}-${row.team2_score}` : `${row.team2_score}-${row.team1_score}`
         };
@@ -273,7 +274,9 @@ router.get('/:id/head2head', (req, res) => {
             team1_name: match.team1_short_name || match.team1_name,
             team2_name: match.team2_short_name || match.team2_name,
             team1_logo_url: match.team1_logo_url,
+            team1_dark_logo_url: match.team1_dark_logo_url,
             team2_logo_url: match.team2_logo_url,
+            team2_dark_logo_url: match.team2_dark_logo_url,
             match_time: match.match_time,
             format: match.format
         },
