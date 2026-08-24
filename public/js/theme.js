@@ -21,8 +21,8 @@
     }
 
     function addToggle() {
-        const nav = document.querySelector('.hero nav');
-        if (!nav || document.getElementById('themeToggle')) return;
+        const userPanel = document.getElementById('userPanel') || document.getElementById('auth');
+        if (!userPanel || document.getElementById('themeToggle')) return;
         const btn = document.createElement('button');
         btn.id = 'themeToggle';
         btn.type = 'button';
@@ -41,7 +41,7 @@
             // 通知 tournament-logos.js 等模块即时响应主题切换（赛事 -dark 变体 / 队标暗色版换源）
             window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme: next } }));
         });
-        nav.appendChild(btn);
+        userPanel.appendChild(btn);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', addToggle);

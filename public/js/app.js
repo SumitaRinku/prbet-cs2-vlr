@@ -72,6 +72,7 @@ function logout() {
 
 function renderUser() {
     if (!userPanelEl) return;
+    const toggle = document.getElementById('themeToggle');
     if (!state.user) {
         userPanelEl.innerHTML = `
             <input id="username" placeholder="用户名">
@@ -79,9 +80,11 @@ function renderUser() {
             <button onclick="login()">登录</button>
             <button onclick="register()">注册</button>
         `;
+        if (toggle) userPanelEl.appendChild(toggle);
         return;
     }
     userPanelEl.innerHTML = `<span>${escapeHtml(state.user.username)} · ${escapeHtml(state.user.role)} · ${state.user.total_score || 0}分</span><button onclick="logout()">退出</button>${state.user.role === 'admin' ? '<a class="button" href="/admin/">管理后台</a>' : ''}`;
+    if (toggle) userPanelEl.appendChild(toggle);
 }
 
 async function login() {
@@ -259,7 +262,7 @@ function matchCard(match) {
                 </a>
             </div>
             <div class="match-footer"><span>${match.prediction_count || 0} 人预测</span><button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button></div>
-            ${prediction ? `<div class="user-prediction ${predictionClass}"><strong>我的预测</strong><span>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>${match.is_forfeit ? '<b>弃权不计分</b>' : prediction.points_earned !== null ? `<b>+${prediction.points_earned} 分</b>` : '<b>待结算</b>'}</div>` : ''}
+            ${prediction ? `<div class="user-prediction ${predictionClass}"><strong>我的预测</strong><span>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>${match.is_forfeit ? '<b>弃权不计分</b>' : prediction.points_earned !== null ? `<b>+${prediction.points_earned} 分</b>` : '<b>待结算</b>'}<button class="link-btn share-trigger" onclick="event.stopPropagation(); sharePrediction(${match.id})" title="生成分享图">分享</button></div>` : ''}
             ${predictionFormHtml}
         </article>`;
 }
@@ -681,6 +684,9 @@ window.setMatchStatus = setMatchStatus;
 window.clearMatchFilters = clearMatchFilters;
 window.showMatchPredictions = showMatchPredictions;
 window.closeDetailModal = closeDetailModal;
+// 分享卡数据钩子：share.js 通过它取比赛数据与用户上下文（state 为模块作用域，不挂 window）
+window.getMatchForShare = matchId => state.matches.find(match => String(match.id) === String(matchId));
+window.getShareContext = () => ({ user: state.user, streaks: state.myStreaks });
 
 // URL ?game= 直达：优先于本地记忆，保证分享/刷新后视图一致
 const urlGame = new URLSearchParams(location.search).get('game');

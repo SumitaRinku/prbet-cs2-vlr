@@ -42,6 +42,7 @@ app.use('/api/tournaments', require('./routes/tournaments'));
 app.use('/api/predictions', require('./routes/predictions'));
 app.use('/api/leaderboard', require('./routes/leaderboard'));
 app.use('/api/images', require('./routes/images'));
+app.use('/api/qrcode', require('./routes/qrcode'));
 app.use('/api/teams', require('./routes/teams'));
 app.use('/api/admin', require('./routes/admin'));
 

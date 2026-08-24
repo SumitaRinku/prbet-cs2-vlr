@@ -16,6 +16,16 @@ data/logo-cache/
 
 # 临时 / 调试脚本
 tmp_*.js
+.tmp-*
+test/.tmp-*
+test/.*.tmp.*
+shot-*.png
+*.commit-msg.tmp.txt
+
+# 设计素材源文件（woff2 子集已放 public/fonts，TTF 源与 logo 素材不进库）
+misans_ttf/
+tournament_logo/
+public/images/brand-concept.jpg
 
 # 抓取的参考页面（非项目代码）
 CS Asia Championships*.html

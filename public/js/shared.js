@@ -24,6 +24,7 @@ function escapeSharedHtml(value) {
 function renderSharedUser() {
     const el = document.querySelector('#userPanel');
     if (!el) return;
+    const toggle = document.getElementById('themeToggle');
     if (!sharedState.user) {
         el.innerHTML = `
             <input id="username" placeholder="用户名">
@@ -31,9 +32,11 @@ function renderSharedUser() {
             <button onclick="sharedLogin()">登录</button>
             <button onclick="sharedRegister()">注册</button>
         `;
+        if (toggle) el.appendChild(toggle);
         return;
     }
     el.innerHTML = `<span>${escapeSharedHtml(sharedState.user.username)} · ${escapeSharedHtml(sharedState.user.role)} · ${sharedState.user.total_score || 0}分</span><button onclick="sharedLogout()">退出</button>${sharedState.user.role === 'admin' ? '<a class="button" href="/admin/">管理后台</a>' : ''}`;
+    if (toggle) el.appendChild(toggle);
 }
 
 function notifyAuthChanged() {

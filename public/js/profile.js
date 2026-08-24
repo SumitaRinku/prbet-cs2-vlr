@@ -1,4 +1,4 @@
-const profileState = { predictions: [], stats: null, streaks: [], visibleCount: 20 };
+const profileState = { predictions: [], stats: null, streaks: [], streakMap: {}, visibleCount: 20 };
 const PREDICTION_PAGE_SIZE = 20;
 
 function escapeHtml(value) {
@@ -27,7 +27,10 @@ function predictionCard(prediction) {
                 <span class="match-format">${escapeHtml(prediction.format)}</span>
                 <strong>${escapeHtml(prediction.tournament_name)}</strong>
             </div>
-            ${predictionStatus(prediction)}
+            <div class="prediction-card-actions">
+                ${predictionStatus(prediction)}
+                <button class="link-btn share-trigger" type="button" onclick="sharePredictionFromProfile(${prediction.match_id})" title="生成分享图">分享</button>
+            </div>
         </div>
         <div class="prediction-matchup">
             <div>${logoHtml(prediction.team1_logo_url, prediction.team1_dark_logo_url)}<strong>${escapeHtml(team1)}</strong></div>
@@ -115,6 +118,8 @@ async function loadProfile() {
     profileState.predictions = data.predictions;
     profileState.stats = data.stats;
     profileState.streaks = data.streaks || [];
+    // 连胜映射：tournament_id -> 当前连胜（分享卡用，与 app.js 的 myStreaks 结构一致）
+    profileState.streakMap = Object.fromEntries(profileState.streaks.map(item => [String(item.tournament_id), item.current]));
     renderSummary();
     renderStreaks();
     renderPredictions();
@@ -137,6 +142,47 @@ function resetAndRenderPredictions() {
     profileState.visibleCount = PREDICTION_PAGE_SIZE;
     renderPredictions();
 }
+
+// ---------- 分享图桥接（share.js 通过 window.getMatchForShare / getShareContext 取数） ----------
+
+// 把预测记录转换为分享卡所需的 match 结构（字段名与 app.js 的赛程 match 对齐）
+window.getMatchForShare = matchId => {
+    const p = profileState.predictions.find(item => String(item.match_id) === String(matchId));
+    if (!p) return null;
+    return {
+        id: p.match_id,
+        name: p.match_name,
+        tournament_name: p.tournament_name,
+        tournament_id: p.tournament_id,
+        match_time: p.match_time,
+        is_forfeit: p.match_is_forfeit,
+        team1_id: p.team1_id,
+        team2_id: p.team2_id,
+        team1_name: p.team1_name,
+        team1_short_name: p.team1_short_name,
+        team1_logo_url: p.team1_logo_url,
+        team1_dark_logo_url: p.team1_dark_logo_url,
+        team2_name: p.team2_name,
+        team2_short_name: p.team2_short_name,
+        team2_logo_url: p.team2_logo_url,
+        team2_dark_logo_url: p.team2_dark_logo_url,
+        team1_score: p.actual_team1_score,
+        team2_score: p.actual_team2_score,
+        user_prediction: {
+            predicted_team1_score: p.predicted_team1_score,
+            predicted_team2_score: p.predicted_team2_score,
+            predicted_winner_id: p.predicted_winner_id,
+            points_earned: p.points_earned
+        }
+    };
+};
+
+window.getShareContext = () => ({ user: sharedState.user, streaks: profileState.streakMap });
+
+function sharePredictionFromProfile(matchId) {
+    if (typeof window.sharePrediction === 'function') window.sharePrediction(matchId);
+}
+window.sharePredictionFromProfile = sharePredictionFromProfile;
 window.resetAndRenderPredictions = resetAndRenderPredictions;
 window.loadMorePredictions = loadMorePredictions;
 window.changePassword = changePassword;

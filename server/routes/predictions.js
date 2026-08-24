@@ -7,9 +7,9 @@ const router = express.Router();
 
 router.get('/my', authenticateToken, (req, res) => {
     const predictions = db.prepare(`
-        SELECT p.*, m.format, m.name match_name, m.match_time, m.status match_status, m.is_forfeit match_is_forfeit, m.team1_score actual_team1_score, m.team2_score actual_team2_score,
-            t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url, t1.dark_logo_url team1_dark_logo_url,
-            t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url, t2.dark_logo_url team2_dark_logo_url,
+        SELECT p.*, m.format, m.tournament_id, m.name match_name, m.match_time, m.status match_status, m.is_forfeit match_is_forfeit, m.team1_score actual_team1_score, m.team2_score actual_team2_score,
+            t1.id team1_id, t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url, t1.dark_logo_url team1_dark_logo_url,
+            t2.id team2_id, t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url, t2.dark_logo_url team2_dark_logo_url,
             pw.name predicted_winner_name, tour.name tournament_name, tour.game_type
         FROM predictions p
         JOIN matches m ON m.id = p.match_id
