@@ -91,6 +91,13 @@ function matchRow(match) {
     const clickable = match.status === 'finished';
     const tbd = isTbdMatch(match);
     const title = match.name || '常规赛程';
+    // 已结算：预测详情 + 对阵历史（近况/交手已按该场开赛前过滤，呈现赛前视角）；
+    // 未开赛且队伍已定：对阵历史。
+    const action = clickable
+        ? `<b>查看预测详情</b><button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button>`
+        : tbd
+            ? '<b class="muted">等待队伍产生</b>'
+            : `<button class="link-btn h2h-trigger" onclick="showMatchHead2Head(${match.id})">对阵历史</button>`;
     return `<article class="archive-match-v2 tournament-match-row ${clickable ? 'clickable' : ''} ${tbd ? 'tbd-match' : ''}" id="match-row-${match.id}" data-match-id="${match.id}" ${clickable ? `onclick="showMatchPredictions(${match.id})"` : ''}>
         <div class="archive-match-main">
             <div class="archive-match-info">
@@ -108,7 +115,7 @@ function matchRow(match) {
             <span>${escapeHtml(match.format || 'BO?')}</span>
             <span>${match.prediction_count || 0} 人预测</span>
             <span>${match.correct_prediction_count || 0} 人得分</span>
-            ${clickable ? '<b>查看预测详情</b>' : `<b class="muted">${tbd ? '等待队伍产生' : '未开放详情'}</b>`}
+            ${action}
         </div>
     </article>`;
 }
@@ -276,16 +283,6 @@ function openTournamentStage(stageKey) {
     if (stage && stage.tagName === 'DETAILS') stage.open = true;
 }
 
-function predictionDetailRow(prediction) {
-    const points = prediction.points_earned ?? 0;
-    const cls = points > 0 ? 'correct' : 'wrong';
-    return `<li class="detail-row match-prediction-detail ${cls}">
-        <strong class="detail-title">${escapeHtml(prediction.username)}</strong>
-        <span class="detail-pick">预测 ${prediction.predicted_team1_score}-${prediction.predicted_team2_score} / ${escapeHtml(prediction.predicted_winner_name)}</span>
-        <b class="detail-points">+${points} 分</b>
-    </li>`;
-}
-
 function closeDetailModal() {
     if (detailModalEl) detailModalEl.hidden = true;
     if (detailModalBodyEl) detailModalBodyEl.innerHTML = '';
@@ -296,16 +293,8 @@ async function showMatchPredictions(matchId) {
     if (!detailModalEl || !detailModalBodyEl) return;
     try {
         const data = await sharedApi(`/matches/${matchId}/predictions`);
-        const match = data.match;
-        detailModalBodyEl.innerHTML = `
-            <div class="modal-head">
-                <span class="game-pill ${match.game_type || ''}">${match.game_type === 'valorant' ? 'Valorant' : 'CS2'}</span>
-                <h2>${escapeHtml(match.team1_name)} ${match.team1_score}-${match.team2_score} ${escapeHtml(match.team2_name)}</h2>
-                <p>${escapeHtml(match.tournament_name)} · ${escapeHtml(match.name || '常规赛程')} · ${formatDateTime(match.match_time)}</p>
-                ${match.is_forfeit ? '<p class="forfeit-banner">本场因弃权按 1-0 判定，所有预测均不计入积分。</p>' : ''}
-            </div>
-            <ol class="detail-list">${data.predictions.map(predictionDetailRow).join('') || '<li class="empty-state">暂无预测</li>'}</ol>
-        `;
+        // 渲染结构由 shared.js 统一提供（主页/回看页共用）：英雄区 + 统计条 + 排名列表
+        detailModalBodyEl.innerHTML = renderMatchPredictionDetail(data.match, data.predictions);
         detailModalEl.hidden = false;
         document.body.classList.add('modal-open');
     } catch (error) {
@@ -333,6 +322,22 @@ async function loadTournaments() {
 }
 
 window.setGame = setGame;
+// showMatchHead2Head 由 /js/h2h.js 提供（window 全局）
+
+// ---------- 回到顶部悬浮按钮：下滑超过一屏后出现在右下角 ----------
+(function ensureBackToTop() {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'back-to-top';
+    button.setAttribute('aria-label', '回到顶部');
+    button.title = '回到顶部';
+    button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l-7 7h4v7h6v-7h4z" fill="currentColor"/></svg>';
+    button.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    document.body.appendChild(button);
+    const toggle = () => button.classList.toggle('visible', window.scrollY > window.innerHeight * 0.6);
+    window.addEventListener('scroll', toggle, { passive: true });
+    toggle();
+})();
 window.setTournamentViewMode = setTournamentViewMode;
 window.loadTournaments = loadTournaments;
 window.openTournamentPage = openTournamentPage;

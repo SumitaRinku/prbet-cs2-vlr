@@ -155,7 +155,7 @@ router.get('/:id/predictions', (req, res) => {
     if (match.status !== 'finished') return res.status(400).json({ error: '只有已结算比赛可以查看预测详情' });
 
     const predictions = db.prepare(`
-        SELECT p.id, p.user_id, p.predicted_team1_score, p.predicted_team2_score, p.points_earned, p.created_at,
+        SELECT p.id, p.user_id, p.predicted_team1_score, p.predicted_team2_score, p.predicted_winner_id, p.points_earned, p.created_at,
             u.username, pw.name predicted_winner_name
         FROM predictions p
         JOIN users u ON u.id = p.user_id
@@ -210,6 +210,7 @@ router.get('/:id/head2head', (req, res) => {
     const match = db.prepare(matchSelect('m.id = ?')).get(req.params.id);
     if (!match) return res.status(404).json({ error: '比赛不存在' });
 
+    // 近况只统计该比赛开赛前的对局（截止时间过滤），呈现"赛前视角"的历史状态。
     const recentFor = (teamId) => db.prepare(`
         SELECT m.team1_id, m.team2_id, m.team1_score, m.team2_score, m.winner_team_id, m.match_time,
             t1.short_name team1_short_name, t1.name team1_name, t1.logo_url team1_logo_url, t1.dark_logo_url team1_dark_logo_url,
@@ -220,10 +221,11 @@ router.get('/:id/head2head', (req, res) => {
         JOIN teams t2 ON t2.id = m.team2_id
         JOIN tournaments tour ON tour.id = m.tournament_id
         WHERE m.status = 'finished' AND m.is_forfeit = 0 AND m.id != ?
+            AND m.match_time < ?
             AND (m.team1_id = ? OR m.team2_id = ?)
         ORDER BY m.match_time DESC
         LIMIT 10
-    `).all(match.id, teamId, teamId).map(row => {
+    `).all(match.id, match.match_time, teamId, teamId).map(row => {
         const isTeam1 = row.team1_id === teamId;
         return {
             match_time: row.match_time,
@@ -250,10 +252,11 @@ router.get('/:id/head2head', (req, res) => {
         FROM matches m
         JOIN tournaments tour ON tour.id = m.tournament_id
         WHERE m.status = 'finished' AND m.is_forfeit = 0 AND m.id != ?
+            AND m.match_time < ?
             AND ((m.team1_id = ? AND m.team2_id = ?) OR (m.team1_id = ? AND m.team2_id = ?))
         ORDER BY m.match_time DESC
         LIMIT 10
-    `).all(match.id, match.team1_id, match.team2_id, match.team2_id, match.team1_id);
+    `).all(match.id, match.match_time, match.team1_id, match.team2_id, match.team2_id, match.team1_id);
 
     const headToHead = h2hRows.map(row => {
         const team1AtHome = row.team1_id === match.team1_id;

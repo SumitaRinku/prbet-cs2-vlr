@@ -104,6 +104,62 @@ function logoHtml(url, darkUrl) {
 // 赛事厂牌 logo 的匹配与渲染在 /js/tournament-logos.js（公共模块，需先于本文件加载）：
 // tournamentLogoUrl / tournamentLogo（上传 logo > 精选映射，远端 URL 不使用）。
 
+// ---------- 比赛预测详情弹窗（主页 app.js 与回看页 tournaments.js 共用） ----------
+// 结构：对阵英雄区（队标 + 终场比分）→ 赛事元信息 → 统计条（参与/命中/命中率/最高加分）→ 排名列表。
+function matchPredictionDetailRow(prediction, index, match) {
+    const points = prediction.points_earned ?? 0;
+    const hit = points > 0;
+    const rank = index + 1;
+    const p1 = Number(prediction.predicted_team1_score);
+    const p2 = Number(prediction.predicted_team2_score);
+    const winSide = prediction.predicted_winner_name || '';
+    return `<li class="pd-row ${hit ? 'hit' : 'miss'}">
+        <span class="pd-rank ${rank <= 3 ? `top${rank}` : ''}">${rank}</span>
+        <div class="pd-user"><strong>${escapeSharedHtml(prediction.username)}</strong><small>选 ${escapeSharedHtml(winSide)}</small></div>
+        <span class="pd-score"><b class="${p1 > p2 ? 'win' : ''}">${p1}</b><em>:</em><b class="${p2 > p1 ? 'win' : ''}">${p2}</b></span>
+        <span class="pd-status">${hit ? '命中' : '未中'}</span>
+        <b class="pd-points">${hit ? `+${points}` : '0'} 分</b>
+    </li>`;
+}
+
+function renderMatchPredictionDetail(match, predictions) {
+    const list = predictions || [];
+    const t1Win = Number(match.team1_score) > Number(match.team2_score);
+    const t2Win = Number(match.team2_score) > Number(match.team1_score);
+    const hitCount = list.filter(p => (p.points_earned ?? 0) > 0).length;
+    const maxPoints = list.reduce((max, p) => Math.max(max, p.points_earned ?? 0), 0);
+    const rate = list.length ? Math.round(hitCount / list.length * 100) : 0;
+    const teamBlock = (prefix, win) => `<div class="pd-hero-team">
+        ${logoHtml(match[`${prefix}_logo_url`], match[`${prefix}_dark_logo_url`])}
+        <div><strong class="${win ? 'win' : ''}">${escapeSharedHtml(match[`${prefix}_short_name`] || match[`${prefix}_name`])}</strong><small>${escapeSharedHtml(match[`${prefix}_name`])}</small></div>
+    </div>`;
+    return `
+        <div class="pd-hero">
+            ${teamBlock('team1', t1Win)}
+            <div class="pd-hero-mid">
+                <span class="game-pill ${match.game_type || ''}">${gameName(match.game_type)}</span>
+                <div class="pd-final"><b class="${t1Win ? 'win' : ''}">${match.team1_score}</b><em>:</em><b class="${t2Win ? 'win' : ''}">${match.team2_score}</b></div>
+                <small>终场比分</small>
+            </div>
+            ${teamBlock('team2', t2Win)}
+        </div>
+        <p class="pd-meta">${escapeSharedHtml(match.tournament_name || '')} · ${escapeSharedHtml(match.name || '常规赛程')} · ${formatDateTime(match.match_time)}</p>
+        ${match.is_forfeit ? '<p class="pd-forfeit">本场因弃权按 1-0 判定，所有预测均不计入积分。</p>' : ''}
+        <div class="pd-stats">
+            <span><b>${list.length}</b><small>人参与</small></span>
+            <span><b>${hitCount}</b><small>命中</small></span>
+            <span><b>${rate}%</b><small>命中率</small></span>
+            <span><b>+${maxPoints}</b><small>最高加分</small></span>
+        </div>
+        <ol class="pd-list">${list.map((p, i) => matchPredictionDetailRow(p, i, match)).join('') || '<li class="empty-state">暂无预测</li>'}</ol>
+    `;
+}
+
+window.matchPredictionDetailRow = matchPredictionDetailRow;
+window.renderMatchPredictionDetail = renderMatchPredictionDetail;
+
+// showMatchHead2Head 在 /js/h2h.js（独立文件，主页/回看页均加载）。
+
 window.sharedApi = sharedApi;
 window.renderSharedUser = renderSharedUser;
 window.sharedLogin = sharedLogin;

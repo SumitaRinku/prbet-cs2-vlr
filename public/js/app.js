@@ -281,71 +281,7 @@ async function cancelPrediction(matchId) {
     } catch (error) { alert(error.message); }
 }
 
-function recentListHtml(items) {
-    if (!items.length) return '<div class="h2h-empty">暂无已结算比赛</div>';
-    return items.map(item => {
-        const isWin = item.result === 'W';
-        return `<li class="h2h-form-row">
-            <span class="h2h-result ${isWin ? 'win' : 'loss'}">${isWin ? '胜' : '负'}</span>
-            <a class="h2h-opp" href="/teams.html?team=${item.opponent_id}">${logo(item.opponent_logo_url, item.opponent_dark_logo_url)}<span>vs ${escapeHtml(item.opponent)}</span></a>
-            <span class="h2h-score">${escapeHtml(item.score)}</span>
-            <time class="h2h-date">${formatDateTime(item.match_time)}</time>
-        </li>`;
-    }).join('');
-}
-
-async function showMatchHead2Head(matchId) {
-    if (!detailModalEl || !detailModalBodyEl) return;
-    try {
-        const data = await api(`/matches/${matchId}/head2head`);
-        const m = data.match;
-        const formPanel = (team, side) => {
-            const teamId = m[`${side}_id`];
-            const name = m[`${side}_name`];
-            const logoUrl = m[`${side}_logo_url`];
-            const darkLogoUrl = m[`${side}_dark_logo_url`];
-            const rate = team.wins + team.losses ? Math.round(team.wins / (team.wins + team.losses) * 100) : 0;
-            return `
-            <section class="h2h-panel">
-                <header class="h2h-panel-head">
-                    <a class="h2h-team-identity" href="/teams.html?team=${teamId}">${logo(logoUrl, darkLogoUrl)}<span><b>${escapeHtml(name)}</b><small>查看队伍详情</small></span></a>
-                    <div class="h2h-record"><b>${rate}%</b><span>近况胜率 · ${team.wins}胜 ${team.losses}负</span></div>
-                </header>
-                <ol class="h2h-form">${recentListHtml(team.recent)}</ol>
-            </section>`;
-        };
-        const h2hList = data.head_to_head.length
-            ? data.head_to_head.map(h => {
-                const team1Won = h.winner === 'team1';
-                return `<li class="h2h-match-row">
-                    <span class="h2h-score-line">
-                        <b class="${team1Won ? 'win' : 'loss'}">${escapeHtml(m.team1_name)}</b>
-                        <span>${h.team1_score} - ${h.team2_score}</span>
-                        <b class="${team1Won ? 'loss' : 'win'}">${escapeHtml(m.team2_name)}</b>
-                    </span>
-                    <span class="h2h-tournament">${escapeHtml(h.tournament_name || '')}</span>
-                    <time class="h2h-match-date">${formatDateTime(h.match_time)}</time>
-                </li>`;
-            }).join('')
-            : '<div class="h2h-empty">两队暂无交手记录</div>';
-        detailModalBodyEl.innerHTML = `
-            <div class="h2h-hero">
-                <a href="/teams.html?team=${m.team1_id}">${logo(m.team1_logo_url, m.team1_dark_logo_url)}<strong>${escapeHtml(m.team1_name)}</strong></a>
-                <div><span>HEAD TO HEAD</span><b>VS</b><small>${m.format} · ${formatDateTime(m.match_time)}</small></div>
-                <a href="/teams.html?team=${m.team2_id}">${logo(m.team2_logo_url, m.team2_dark_logo_url)}<strong>${escapeHtml(m.team2_name)}</strong></a>
-            </div>
-            <div class="h2h-grid">${formPanel(data.team1, 'team1')}${formPanel(data.team2, 'team2')}</div>
-            <section class="h2h-panel h2h-h2h">
-                <header class="h2h-section-head"><div><span>DIRECT MEETINGS</span><h3>交手记录</h3></div><b>${data.head_to_head.length} 场</b></header>
-                <ol class="h2h-matches">${h2hList}</ol>
-            </section>
-        `;
-        detailModalEl.hidden = false;
-        document.body.classList.add('modal-open');
-    } catch (error) {
-        alert(error.message);
-    }
-}
+// showMatchHead2Head 已移至 shared.js（主页/回看页共用），通过 window.showMatchHead2Head 调用。
 
 async function loadMatches(opts = {}) {
     if (!matchesEl) return;
@@ -635,30 +571,12 @@ function closeDetailModal() {
     document.body.classList.remove('modal-open');
 }
 
-function predictionDetailRow(prediction) {
-    const points = prediction.points_earned ?? 0;
-    const cls = points > 0 ? 'correct' : 'wrong';
-    return `<li class="detail-row match-prediction-detail ${cls}">
-        <strong class="detail-title">${escapeHtml(prediction.username)}</strong>
-        <span class="detail-pick">预测 ${prediction.predicted_team1_score}-${prediction.predicted_team2_score} / ${escapeHtml(prediction.predicted_winner_name)}</span>
-        <b class="detail-points">+${points} 分</b>
-    </li>`;
-}
-
 async function showMatchPredictions(matchId) {
     if (!detailModalEl || !detailModalBodyEl) return;
     try {
         const data = await api(`/matches/${matchId}/predictions`);
-        const match = data.match;
-        detailModalBodyEl.innerHTML = `
-            <div class="modal-head">
-                <span class="game-pill ${match.game_type || ''}">${gameName(match.game_type)}</span>
-                <h2>${escapeHtml(match.team1_name)} ${match.team1_score}-${match.team2_score} ${escapeHtml(match.team2_name)}</h2>
-                <p>${escapeHtml(match.tournament_name)} · ${escapeHtml(match.name || '常规赛程')} · ${formatDateTime(match.match_time)}</p>
-                ${match.is_forfeit ? '<p class="forfeit-banner">本场因弃权按 1-0 判定，所有预测均不计入积分。</p>' : ''}
-            </div>
-            <ol class="detail-list">${data.predictions.map(predictionDetailRow).join('') || '<li class="empty-state">暂无预测</li>'}</ol>
-        `;
+        // 渲染结构由 shared.js 统一提供（主页/回看页共用）：英雄区 + 统计条 + 排名列表
+        detailModalBodyEl.innerHTML = renderMatchPredictionDetail(data.match, data.predictions);
         detailModalEl.hidden = false;
         document.body.classList.add('modal-open');
     } catch (error) {
@@ -677,7 +595,6 @@ window.register = register;
 window.logout = logout;
 window.predict = predict;
 window.cancelPrediction = cancelPrediction;
-window.showMatchHead2Head = showMatchHead2Head;
 window.setGame = setGame;
 window.setTournament = setTournament;
 window.setMatchStatus = setMatchStatus;

@@ -50,6 +50,67 @@
 .clickable{cursor:pointer}.detail-hint{margin:10px 16px 16px;padding:8px 11px;border-radius:12px;background:rgba(49,93,244,.06);color:var(--primary-color);font-size:.76rem;font-weight:800;text-align:center}.modal[hidden]{display:none}.modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px}.modal-backdrop{position:absolute;inset:0;background:rgba(12,20,34,.48);backdrop-filter:blur(6px)}.modal-panel{position:relative;z-index:1;width:min(720px,100%);max-height:min(78vh,760px);overflow:auto;border-radius:22px;background:var(--card-solid);border:1px solid rgba(123,145,178,.22);box-shadow:var(--shadow-lg);padding:20px}.modal-close{position:absolute;top:12px;right:12px;width:36px;height:36px;padding:0;border-radius:999px;background:rgba(238,243,251,.95);color:var(--text-primary);box-shadow:none}.modal-head{padding-right:42px;margin-bottom:14px}.modal-head h2{margin:8px 0 4px;font-size:1.25rem}.modal-head p{margin:0;color:var(--text-secondary);font-weight:700}.detail-list{display:grid;gap:8px;list-style:none}.detail-row{display:grid;grid-template-columns:minmax(110px,1fr) minmax(160px,1.4fr) minmax(120px,1fr) auto;gap:10px;align-items:center;padding:11px 12px;border-radius:14px;background:rgba(238,243,251,.58);border:1px solid rgba(123,145,178,.12)}.detail-row.correct{border-color:rgba(30,166,114,.18);background:rgba(30,166,114,.07)}.detail-row.wrong{border-color:rgba(217,75,99,.16);background:rgba(217,75,99,.06)}.detail-row span{color:var(--text-secondary);font-weight:700}.detail-row b{color:var(--primary-color);white-space:nowrap}.leaderboard-row{grid-template-columns:70px 1fr 110px 140px 110px 120px}.leaderboard-row small{color:var(--text-secondary);font-weight:800}.leaderboard-row.clickable:hover{background:rgba(49,93,244,.075)}.admin-subtitle{margin:12px 0 8px;color:var(--text-secondary);font-size:.82rem;font-weight:900;text-transform:uppercase}.admin-filter-bar{padding:12px;border-radius:16px;background:rgba(238,243,251,.55);border:1px solid rgba(123,145,178,.12)}
 @media(max-width:920px){.modal{padding:12px}.modal-panel{max-height:84vh;border-radius:18px;padding:16px}.detail-row{grid-template-columns:1fr}.leaderboard-row{grid-template-columns:48px 1fr}.leaderboard-row small{grid-column:2}.detail-hint{margin:10px 12px 12px}}
 
+/* 比赛预测详情弹窗（pd-*）：英雄对阵区 + 统计条 + 排名列表，主页/回看页共用 */
+.pd-hero{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:12px;padding:14px 10px 10px;border-radius:14px;background:var(--surface-input);border:1px solid var(--border-soft)}
+.pd-hero-team{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;text-align:center}
+.pd-hero-team img,.pd-hero-team .placeholder{width:52px;height:52px;border-radius:10px;padding:5px;background:var(--surface-input);border:1px solid var(--border-soft);object-fit:contain}
+.pd-hero-team strong{max-width:100%;font-size:.95rem;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-hero-team strong.win,.pd-final b.win,.pd-score b.win{color:#b98613}
+html[data-theme=dark] .pd-hero-team strong.win,html[data-theme=dark] .pd-final b.win,html[data-theme=dark] .pd-score b.win{color:#e3b341}
+.pd-hero-team small{max-width:100%;color:var(--text-secondary);font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-hero-mid{display:flex;flex-direction:column;align-items:center;gap:3px}
+.pd-final{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.pd-final b{font-size:1.9rem;line-height:1;color:var(--text-secondary)}
+.pd-final em{color:var(--text-faint,var(--text-secondary));font-size:1.1rem;font-style:normal}
+.pd-hero-mid small{color:var(--text-secondary);font-size:.68rem;font-weight:700}
+.pd-meta{margin:10px 2px 0;color:var(--text-secondary);font-size:.78rem;font-weight:700;text-align:center}
+.pd-forfeit{margin:10px 2px 0;padding:7px 10px;border-radius:10px;background:rgba(245,158,11,.09);color:#b45309;font-size:.74rem;font-weight:800;text-align:center}
+html[data-theme=dark] .pd-forfeit{color:#e0a458}
+.pd-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
+.pd-stats span{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 4px;border-radius:12px;background:var(--surface-input);border:1px solid var(--border-soft)}
+.pd-stats b{font-size:1.25rem;line-height:1.1;color:var(--text-heading)}
+.pd-stats small{color:var(--text-secondary);font-size:.7rem;font-weight:800}
+.pd-list{display:grid;gap:7px;list-style:none}
+.pd-row{display:grid;grid-template-columns:30px minmax(0,1fr) auto auto auto;gap:8px 10px;align-items:center;padding:9px 12px;border-radius:12px;background:var(--surface-input);border:1px solid var(--border-soft)}
+.pd-row.hit{border-color:rgba(30,166,114,.25);background:var(--correct-bg,var(--surface-input))}
+.pd-row.miss{border-color:rgba(123,145,178,.16)}
+.pd-rank{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--surface-5);color:var(--text-secondary);font-size:.78rem;font-weight:800;font-variant-numeric:tabular-nums}
+.pd-rank.top1{background:rgba(217,165,33,.16);color:#b98613}
+.pd-rank.top2{background:rgba(148,163,184,.18);color:#64748b}
+.pd-rank.top3{background:rgba(180,110,70,.16);color:#a2643c}
+html[data-theme=dark] .pd-rank.top1{color:#e3b341}
+html[data-theme=dark] .pd-rank.top2{color:#a8b4c4}
+html[data-theme=dark] .pd-rank.top3{color:#c98a5f}
+.pd-user{display:flex;flex-direction:column;gap:1px;min-width:0}
+.pd-user strong{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.88rem;line-height:1.2}
+.pd-user small{color:var(--text-secondary);font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pd-score{display:flex;align-items:center;gap:3px;font-variant-numeric:tabular-nums}
+.pd-score b{font-size:.98rem;line-height:1;color:var(--text-secondary)}
+.pd-score b.win{font-weight:800}
+.pd-score em{color:var(--text-faint,var(--text-secondary));font-size:.8rem;font-style:normal}
+.pd-status{padding:3px 9px;border-radius:999px;font-size:.68rem;font-weight:800}
+.pd-row.hit .pd-status{background:rgba(30,166,114,.12);color:var(--success-color)}
+.pd-row.miss .pd-status{background:rgba(123,145,178,.12);color:var(--text-secondary)}
+.pd-points{white-space:nowrap;font-size:.82rem;color:var(--primary-color)}
+.pd-row.miss .pd-points{color:var(--text-secondary)}
+@media(max-width:620px){
+  .pd-hero{gap:8px;padding:12px 6px 8px}
+  .pd-hero-team img,.pd-hero-team .placeholder{width:40px;height:40px;border-radius:8px;padding:4px}
+  .pd-hero-team strong{font-size:.82rem}
+  .pd-hero-team small{display:none}
+  .pd-final b{font-size:1.5rem}
+  .pd-stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:10px 0}
+  .pd-stats span{padding:8px 2px;border-radius:10px}
+  .pd-stats b{font-size:1.05rem}
+  .pd-stats small{font-size:.62rem}
+  .pd-row{grid-template-columns:26px minmax(0,1fr) auto;grid-template-areas:"rank user points" "rank score status";gap:3px 8px;padding:8px 10px}
+  .pd-rank{grid-area:rank;width:24px;height:24px;font-size:.72rem}
+  .pd-user{grid-area:user}
+  .pd-score{grid-area:score;justify-self:start}
+  .pd-status{grid-area:status;justify-self:end}
+  .pd-points{grid-area:points;justify-self:end}
+}
+
 /* Inline score picker */
 .home-layout .score-picks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.home-layout .score-pick{min-width:0;width:100%;display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 8px;border-radius:13px;background:var(--surface-input);border:1px solid rgba(123,145,178,.18);box-shadow:none;color:var(--text-primary)}.home-layout .score-pick:hover{transform:translateY(-1px);border-color:var(--state-color);box-shadow:0 8px 18px rgba(20,32,51,.08)}.home-layout .score-pick strong{font-size:1rem;line-height:1.1}.home-layout .score-pick span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary);font-size:.68rem;font-weight:800}.home-layout .score-pick.picked{background:var(--state-soft);border-color:var(--state-color);color:var(--state-color)}.home-layout .score-pick.picked span{color:var(--state-color)}
 @media(max-width:620px){.home-layout .score-picks{display:flex;gap:5px}.home-layout .score-pick{flex:1 1 0;min-width:0;flex-direction:row;justify-content:center;gap:0;padding:8px 2px}.home-layout .score-pick strong{font-size:.85rem}.home-layout .score-pick span{display:none}}
@@ -245,6 +306,7 @@ html[data-theme=dark] .prediction-matchup img,html[data-theme=dark] .prediction-
 html[data-theme=dark] .home-layout .match-teams .team img,html[data-theme=dark] .home-layout .match-teams .team .placeholder,
 html[data-theme=dark] .h2h-hero img,html[data-theme=dark] .h2h-opp img,html[data-theme=dark] .h2h-team-identity img,
 html[data-theme=dark] .team-card-logo img,html[data-theme=dark] .team-detail-logo img,html[data-theme=dark] .team-match-opponent img,
+html[data-theme=dark] .pd-hero-team img,html[data-theme=dark] .pd-hero-team .placeholder,
 html[data-theme=dark] .tiny-logo,html[data-theme=dark] .tournament-logo{background:transparent;border-color:transparent}
 /* 比赛卡片头部内联赛事 logo：上下文选择器优先级更高，需单独覆盖 */
 html[data-theme=dark] .home-layout .tournament-name .tournament-logo{background:transparent;border-color:transparent}
@@ -360,11 +422,14 @@ button:focus-visible,.button:focus-visible,input:focus-visible,select:focus-visi
 }
 
 /* Tournament dedicated page */
-.tournament-focus-view{display:block}.tournament-focus{padding:0;overflow:hidden;background:var(--surface-1)}.tournament-back{margin:10px}.tournament-focus-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;padding:14px 16px;background:var(--surface-4);border-top:1px solid var(--border-color);border-bottom:1px solid var(--border-color)}.tournament-focus-head h2{margin:6px 0 3px;font-size:22px;line-height:1.15;color:var(--text-heading)}.tournament-focus-head p{margin:0;color:var(--text-secondary);font-size:12px;font-weight:700}.tournament-focus-stats{display:grid;grid-template-columns:repeat(3,92px);gap:6px}.tournament-focus-stats span{display:block;padding:8px 6px;background:var(--surface-input);border:1px solid var(--border-color);text-align:center;color:var(--text-secondary);font-size:11px;font-weight:700}.tournament-focus-stats b{display:block;color:var(--text-primary);font-size:18px;line-height:1.1}.tournament-stage-nav{display:flex;gap:6px;overflow:auto;padding:8px 10px;background:var(--surface-3);border-bottom:1px solid var(--border-soft)}.tournament-stage-nav a{flex:0 0 auto;padding:5px 8px;border:1px solid var(--border-color);background:var(--surface-input);color:var(--pick-text);font-size:11px;font-weight:700}.tournament-stage-list{display:grid;gap:10px;padding:10px}.tournament-stage-block{background:var(--surface-input);border:1px solid var(--border-color)}.tournament-stage-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:var(--bracket-stage-head);color:var(--bracket-text)}.tournament-stage-head h3{margin:0;font-size:14px;line-height:1.2}.tournament-stage-head span{color:var(--bracket-text-muted);font-size:11px;font-weight:700}.tournament-stage-block .archive-match-list{padding:0;gap:0}.tournament-stage-block .archive-match-v2{border:0;border-radius:0;border-bottom:1px solid var(--border-soft);background:var(--surface-input)}.tournament-stage-block .archive-match-v2:last-child{border-bottom:0}.tournament-stage-block .archive-match-main{grid-template-columns:190px minmax(0,1fr);padding:8px 10px}.tournament-stage-block .archive-match-info strong{font-size:12px}.tournament-stage-block .archive-match-info small{font-size:11px}.tournament-stage-block .archive-matchup-v2{grid-template-columns:minmax(0,1fr) 70px minmax(0,1fr)}.tournament-stage-block .archive-team img,.tournament-stage-block .archive-team .placeholder{width:30px;height:30px}.tournament-stage-block .archive-scorebox{font-size:17px}.tournament-stage-block .archive-match-meta{padding:5px 10px;background:var(--surface-3)}.archive-tournament-action button{white-space:nowrap}
+/* 注：去掉 overflow:hidden——sticky 阶段选择器在有 overflow 祖先时会失效 */
+.tournament-focus-view{display:block}.tournament-focus{padding:0;overflow:visible;background:var(--surface-1)}.tournament-back{margin:10px}.tournament-focus-head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center;padding:14px 16px;background:var(--surface-4);border-top:1px solid var(--border-color);border-bottom:1px solid var(--border-color)}.tournament-focus-head h2{margin:6px 0 3px;font-size:22px;line-height:1.15;color:var(--text-heading)}.tournament-focus-head p{margin:0;color:var(--text-secondary);font-size:12px;font-weight:700}.tournament-focus-stats{display:grid;grid-template-columns:repeat(3,92px);gap:6px}.tournament-focus-stats span{display:block;padding:8px 6px;background:var(--surface-input);border:1px solid var(--border-color);text-align:center;color:var(--text-secondary);font-size:11px;font-weight:700}.tournament-focus-stats b{display:block;color:var(--text-primary);font-size:18px;line-height:1.1}.tournament-stage-nav{display:flex;gap:6px;overflow:auto;padding:8px 10px;background:var(--surface-3);border-bottom:1px solid var(--border-soft)}.tournament-stage-nav a{flex:0 0 auto;padding:5px 8px;border:1px solid var(--border-color);background:var(--surface-input);color:var(--pick-text);font-size:11px;font-weight:700}.tournament-stage-list{display:grid;gap:10px;padding:10px}
+/* 锚点跳转补偿：sticky 阶段选择器会盖住目标顶部 */
+.tournament-stage-block{scroll-margin-top:90px}.tournament-stage-block{background:var(--surface-input);border:1px solid var(--border-color)}.tournament-stage-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:var(--bracket-stage-head);color:var(--bracket-text)}.tournament-stage-head h3{margin:0;font-size:14px;line-height:1.2}.tournament-stage-head span{color:var(--bracket-text-muted);font-size:11px;font-weight:700}.tournament-stage-block .archive-match-list{padding:0;gap:0}.tournament-stage-block .archive-match-v2{border:0;border-radius:0;border-bottom:1px solid var(--border-soft);background:var(--surface-input)}.tournament-stage-block .archive-match-v2:last-child{border-bottom:0}.tournament-stage-block .archive-match-main{grid-template-columns:190px minmax(0,1fr);padding:8px 10px}.tournament-stage-block .archive-match-info strong{font-size:12px}.tournament-stage-block .archive-match-info small{font-size:11px}.tournament-stage-block .archive-matchup-v2{grid-template-columns:minmax(0,1fr) 70px minmax(0,1fr)}.tournament-stage-block .archive-team img,.tournament-stage-block .archive-team .placeholder{width:30px;height:30px}.tournament-stage-block .archive-scorebox{font-size:17px}.tournament-stage-block .archive-match-meta{padding:5px 10px;background:var(--surface-3)}.archive-tournament-action button{white-space:nowrap}
 @media(max-width:760px){.tournament-focus-head{grid-template-columns:1fr;padding:10px}.tournament-focus-head h2{font-size:17px}.tournament-focus-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.tournament-stage-list{padding:8px;gap:8px}.tournament-stage-head{align-items:flex-start;flex-direction:column;gap:3px}.tournament-stage-block .archive-match-main{grid-template-columns:1fr;padding:7px 8px}.tournament-stage-block .archive-match-info{grid-template-columns:auto minmax(0,1fr) auto}.tournament-stage-block .archive-matchup-v2{grid-template-columns:minmax(0,1fr) 52px minmax(0,1fr)}.tournament-stage-block .archive-match-meta{grid-template-columns:repeat(4,minmax(0,1fr));font-size:10px}.tournament-back{width:auto;margin:8px}}
 
 /* Tournament stage map */
-.tournament-stage-map{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;padding:10px;background:var(--surface-input);border-bottom:1px solid var(--border-soft)}.stage-map-node{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr);grid-template-areas:"num title" "num meta";gap:2px 8px;align-items:center;padding:8px;border:1px solid var(--border-color);background:var(--surface-3);color:var(--text-primary)}.stage-map-node:not(:last-child)::after{content:"";position:absolute;right:-8px;top:50%;width:8px;height:1px;background:var(--border-strong)}.stage-map-node span{grid-area:num;display:grid;place-items:center;width:28px;height:28px;background:var(--bracket-stage-num);color:var(--bracket-text);font-weight:800}.stage-map-node strong{grid-area:title;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}.stage-map-node small{grid-area:meta;color:var(--text-secondary);font-size:11px;font-weight:700}.stage-map-node.done span{background:var(--success-color);color:#fff}.stage-map-node.done{border-color:rgba(79,157,105,.55);background:rgba(79,157,105,.12)}@media(max-width:760px){.tournament-stage-map{display:flex;overflow:auto}.stage-map-node{flex:0 0 170px}.stage-map-node:not(:last-child)::after{display:none}}
+.tournament-stage-map{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;padding:10px;background:var(--surface-input);border-bottom:1px solid var(--border-soft);position:sticky;top:0;z-index:30;box-shadow:0 6px 14px rgba(20,32,51,.10)}.stage-map-node{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr);grid-template-areas:"num title" "num meta";gap:2px 8px;align-items:center;padding:8px;border:1px solid var(--border-color);background:var(--surface-3);color:var(--text-primary)}.stage-map-node:not(:last-child)::after{content:"";position:absolute;right:-8px;top:50%;width:8px;height:1px;background:var(--border-strong)}.stage-map-node span{grid-area:num;display:grid;place-items:center;width:28px;height:28px;background:var(--bracket-stage-num);color:var(--bracket-text);font-weight:800}.stage-map-node strong{grid-area:title;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}.stage-map-node small{grid-area:meta;color:var(--text-secondary);font-size:11px;font-weight:700}.stage-map-node.done span{background:var(--success-color);color:#fff}.stage-map-node.done{border-color:rgba(79,157,105,.55);background:rgba(79,157,105,.12)}@media(max-width:760px){.tournament-stage-map{display:flex;overflow:auto}.stage-map-node{flex:0 0 170px}.stage-map-node:not(:last-child)::after{display:none}}
 
 /* Swiss stage rounds */
 .tournament-round-list{display:grid;gap:8px;padding:8px;background:var(--surface-3)}.tournament-round-block{border:1px solid var(--border-color);background:var(--surface-input)}.tournament-round-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 9px;background:var(--surface-4);border-bottom:1px solid var(--border-color)}.tournament-round-head h4{margin:0;font-size:13px;color:var(--text-heading)}.tournament-round-head span{font-size:11px;color:var(--text-secondary);font-weight:700}.swiss-stage-block>.archive-match-list{display:none}.swiss-stage-block .archive-match-list{padding:0;gap:0}@media(max-width:760px){.tournament-round-list{padding:6px;gap:6px}.tournament-round-head{align-items:flex-start;flex-direction:column;gap:2px}.tournament-round-head h4{font-size:12px}.tournament-round-head span{font-size:10px}}
@@ -920,7 +985,14 @@ html[data-theme=dark] .user-prediction.forfeit{color:#e0a458}
 .home-layout .match-footer>span,.home-layout .match-footer .link-btn{width:auto;flex:0 0 auto;white-space:nowrap}
 /* 3) PC 对阵历史弹窗：近况面板限高并内部滚动，交手记录不再被挤出可视区 */
 .h2h-form{max-height:300px;overflow-y:auto}
-/* 2) 移动端对阵历史：两队近况同屏并排；保留队名与 xW-xL 战绩，仅隐藏对阵时间 */
+/* 回到顶部悬浮按钮（赛事回看页）：下滑超过一屏后出现 */
+.back-to-top{position:fixed;right:18px;bottom:24px;z-index:60;display:grid;place-items:center;width:42px;height:42px;padding:0;border-radius:999px;background:var(--surface-5);border:1px solid var(--border-strong);color:var(--pick-text,var(--text-primary));box-shadow:0 8px 20px rgba(20,32,51,.22);cursor:pointer;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .18s ease,transform .18s ease}
+.back-to-top.visible{opacity:1;pointer-events:auto;transform:translateY(0)}
+.back-to-top:hover{background:var(--primary-color);border-color:var(--primary-color);color:#fff}
+.back-to-top svg{width:22px;height:22px}
+html[data-theme=dark] .back-to-top{box-shadow:0 8px 20px rgba(0,0,0,.5)}
+@media(max-width:760px){.back-to-top{right:12px;bottom:16px;width:38px;height:38px}}
+/* 2) 移动端对阵历史：两队近况同屏并排；近况行两列网格，省略对手队名，只留 W/L、logo、比分 */
 @media(max-width:640px){
   .h2h-grid{grid-template-columns:1fr 1fr;gap:8px}
   .h2h-panel{padding:10px}
@@ -928,20 +1000,20 @@ html[data-theme=dark] .user-prediction.forfeit{color:#e0a458}
   .h2h-team-identity small{display:none}
   .h2h-team-identity b{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .h2h-record{align-items:flex-start}
-  .h2h-form-row{gap:6px;padding:5px 6px;font-size:.76rem}
+  .h2h-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;max-height:260px}
+  .h2h-form-row{display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 4px;font-size:.78rem}
   .h2h-form-row .h2h-date{display:none}
-  .h2h-result{width:24px;height:20px;font-size:.66rem}
+  .h2h-form-row .h2h-opp span{display:none}
+  .h2h-form-row .h2h-score{flex:0 0 auto;font-variant-numeric:tabular-nums}
+  .h2h-result{width:22px;height:19px;font-size:.64rem}
   .h2h-opp img,.h2h-opp .placeholder{width:20px;height:20px}
-  .h2h-form{max-height:240px}
 }
-/* 超窄屏（主流手机）：并排两列仅 ~147px，队名被严重截断；
-   改回单列堆叠，行宽翻倍，并恢复对阵时间显示 */
+/* 超窄屏（主流手机）：保持两列近况，logo 与比分进一步收紧 */
 @media(max-width:480px){
-  .h2h-grid{grid-template-columns:1fr}
-  .h2h-form-row{padding:8px 10px;font-size:.84rem;min-height:40px}
-  .h2h-form-row .h2h-date{display:inline-flex}
-  .h2h-result{width:28px;height:22px;font-size:.7rem}
-  .h2h-opp img,.h2h-opp .placeholder{width:22px;height:22px}
+  .h2h-form{gap:4px}
+  .h2h-form-row{gap:4px;padding:5px 3px;font-size:.74rem}
+  .h2h-result{width:20px;height:18px;font-size:.6rem}
+  .h2h-opp img,.h2h-opp .placeholder{width:18px;height:18px}
 }
 /* 4) 页脚吸底：页面内容较少时深蓝页脚不再悬浮在页面中部。
       body 改 flex 列后，带 margin:auto 的主容器会因 auto margin 关闭 stretch 而塌缩成内容宽
