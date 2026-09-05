@@ -2,11 +2,15 @@ const state = {
     game: localStorage.getItem('gameFilter') || 'cs2',
     viewMode: 'detail',
     tournaments: [],
+    brand: localStorage.getItem('tournamentBrandFilter') || '',
+    tier: localStorage.getItem('tournamentTierFilter') || '',
     activeTournamentId: new URLSearchParams(location.search).get('tournament') || ''
 };
 
 const gameFilterEl = document.querySelector('#gameFilter');
 const statusFilterEl = document.querySelector('#statusFilter');
+const tierFilterEl = document.querySelector('#tierFilter');
+const brandFiltersEl = document.querySelector('#brandFilters');
 const viewModeToggleEl = document.querySelector('#viewModeToggle');
 const tournamentsEl = document.querySelector('#tournaments');
 const tournamentCountEl = document.querySelector('#tournamentCount');
@@ -14,14 +18,74 @@ const detailModalEl = document.querySelector('#detailModal');
 const detailModalBodyEl = document.querySelector('#detailModalBody');
 
 if (gameFilterEl) gameFilterEl.value = state.game;
+if (tierFilterEl) tierFilterEl.value = state.tier;
 applyViewMode();
 
 function setGame(game) {
     state.game = game;
     state.activeTournamentId = '';
+    // 切换游戏后原厂牌大概率不存在于新列表，重置避免空结果
+    state.brand = '';
     localStorage.setItem('gameFilter', game);
+    localStorage.setItem('tournamentBrandFilter', '');
     updateTournamentUrl();
     loadTournaments();
+}
+
+// ---------- 厂牌 / 级别筛选（对已加载数据客户端过滤，切换即时生效） ----------
+
+// 厂牌 chip 展示顺序（与服务端 BRAND_RULES 对应；全部游戏时取并集）
+const BRAND_ORDER = {
+    cs2: ['BLAST', 'EPL', 'IEM', 'PGL', 'XPL', 'Stake', 'PWE', 'EWC'],
+    valorant: ['Masters', 'Champions', 'EMEA', 'CN', 'AMER', 'Pacific', 'EWC']
+};
+
+function setBrand(brand) {
+    state.brand = brand;
+    localStorage.setItem('tournamentBrandFilter', brand);
+    renderBrandChips();
+    renderArchiveList();
+}
+
+function setTier(tier) {
+    state.tier = tier;
+    localStorage.setItem('tournamentTierFilter', tier);
+    renderArchiveList();
+}
+
+function filteredTournaments() {
+    return state.tournaments.filter(t =>
+        (!state.brand || (state.brand === '其他' ? !t.brand : t.brand === state.brand)) &&
+        (!state.tier || String(t.effective_tier) === state.tier)
+    );
+}
+
+function renderBrandChips() {
+    if (!brandFiltersEl) return;
+    const counts = new Map();
+    state.tournaments.forEach(t => {
+        const key = t.brand || '其他';
+        counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    // 持久化的厂牌在当前列表不存在（如换游戏后残留）时自动回退"全部"
+    if (state.brand && !counts.has(state.brand)) {
+        state.brand = '';
+        localStorage.setItem('tournamentBrandFilter', '');
+    }
+    const order = BRAND_ORDER.cs2.concat(BRAND_ORDER.valorant.filter(b => !BRAND_ORDER.cs2.includes(b)));
+    const keys = [...counts.keys()].sort((a, b) => {
+        const ia = order.indexOf(a), ib = order.indexOf(b);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    });
+    const chip = (key, label, count) => `<button type="button" class="brand-filter ${state.brand === key ? 'active' : ''}" onclick="setBrand('${key}')"><span>${escapeHtml(label)}</span><b>${count}</b></button>`;
+    brandFiltersEl.innerHTML = chip('', '全部', state.tournaments.length) + keys.map(key => chip(key, key, counts.get(key))).join('');
+}
+
+function renderArchiveList() {
+    const rows = filteredTournaments();
+    if (tournamentCountEl) tournamentCountEl.textContent = `${rows.length} 个赛事`;
+    tournamentsEl.innerHTML = rows.map(tournamentCard).join('') || '<div class="empty-state"><h3>暂无赛事</h3><p>请调整筛选条件。</p></div>';
+    applyViewMode();
 }
 
 function setTournamentViewMode(mode) {
@@ -175,6 +239,23 @@ function stageSection(group, index = 0) {
         </div>
     </details>`;
 }
+// 赛事级别徽章：高级金色、低级灰色、普通不显示。
+// 文字优先取名称中命中的关键词（中英文同义，与 server/services/tournamentTier.js 规则一致），
+// 手动设置级别但名称无关键词时按游戏给默认词。
+function tierBadge(tournament) {
+    const name = tournament.name || '';
+    if (tournament.effective_tier === 1) {
+        const keyword = name.match(/Major|Masters|Champions|大师赛|冠军赛/i);
+        const label = keyword ? keyword[0] : (tournament.game_type === 'valorant' ? 'Masters' : 'Major');
+        return `<span class="tier-badge tier-top" title="高级别赛事">${escapeHtml(label)}</span>`;
+    }
+    if (tournament.effective_tier === 3) {
+        const keyword = name.match(/Qualifier|预选赛/i);
+        return `<span class="tier-badge tier-low" title="预选赛 / 低级别赛事">${escapeHtml(keyword ? keyword[0] : 'Qualifier')}</span>`;
+    }
+    return '';
+}
+
 function tournamentCard(tournament) {
     const finished = tournament.finished_count || 0;
     const total = tournament.match_count || 0;
@@ -187,8 +268,8 @@ function tournamentCard(tournament) {
     return `<article class="tournament-card archive-tournament panel ${tournament.game_type}" data-id="${tournament.id}" onclick="openTournamentPage(${tournament.id})">
         <div class="tournament-card-head archive-tournament-head">
             <div class="archive-tournament-title">
-                <div>${tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url)}<span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span><span class="archive-tournament-state ${ongoing ? 'live' : ''}">${ongoing ? `<i class="live-dot"></i>${ongoing} 场进行中` : status}</span></div>
-                <h2 title="${escapeHtml(tournament.name)}">${escapeHtml(tournament.name)}</h2>
+                <div>${tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url)}<span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>${tierBadge(tournament)}<span class="archive-tournament-state ${ongoing ? 'live' : ''}">${ongoing ? `<i class="live-dot"></i>${ongoing} 场进行中` : status}</span></div>
+                <h2 title="${escapeHtml(tournament.name)}">${tournamentNameHtml(tournament.name, tournament.short_name)}</h2>
                 <p>${formatDateTime(tournament.begin_at)}${tournament.end_at ? ` - ${formatDateTime(tournament.end_at)}` : ''}</p>
             </div>
             <span class="archive-open" aria-hidden="true">›</span>
@@ -221,8 +302,8 @@ function tournamentDetailPage(data) {
         <div class="tournament-focus-head ${tournament.game_type}">
             <div>
                 ${tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url)}
-                <span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>
-                <h2>${escapeHtml(tournament.name)}</h2>
+                <span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>${tierBadge(tournament)}
+                <h2 title="${escapeHtml(tournament.name)}">${tournamentNameHtml(tournament.name, tournament.short_name)}</h2>
                 <p>${formatDateTime(tournament.begin_at)} ${tournament.end_at ? `- ${formatDateTime(tournament.end_at)}` : ''}</p>
             </div>
             <div class="tournament-focus-stats">
@@ -316,12 +397,13 @@ async function loadTournaments() {
     if (status) params.set('status', status);
     const data = await sharedApi(`/tournaments${params.toString() ? `?${params}` : ''}`);
     state.tournaments = data.tournaments;
-    if (tournamentCountEl) tournamentCountEl.textContent = `${data.tournaments.length} 个赛事`;
-    tournamentsEl.innerHTML = data.tournaments.map(tournamentCard).join('') || '<div class="empty-state"><h3>暂无赛事</h3><p>请切换筛选条件。</p></div>';
-    applyViewMode();
+    renderBrandChips();
+    renderArchiveList();
 }
 
 window.setGame = setGame;
+window.setBrand = setBrand;
+window.setTier = setTier;
 // showMatchHead2Head 由 /js/h2h.js 提供（window 全局）
 
 // ---------- 回到顶部悬浮按钮：下滑超过一屏后出现在右下角 ----------

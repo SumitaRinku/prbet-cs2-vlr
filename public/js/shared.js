@@ -80,6 +80,16 @@ function gameName(game) {
     return game === 'valorant' ? 'Valorant' : game === 'cs2' ? 'CS2' : '全部游戏';
 }
 
+// 赛事名展示：管理端可维护简称（tournaments.short_name）。
+// 有简称时，移动端（≤760px）或全名过长（>16 字符）的场景自动改用简称。
+function tournamentNameHtml(name, shortName) {
+    const full = escapeSharedHtml(name || '');
+    const short = String(shortName || '').trim();
+    if (!short || short === (name || '')) return `<span class="t-name">${full}</span>`;
+    const long = String(name || '').length > 16 ? ' long-name' : '';
+    return `<span class="t-name has-short${long}"><span class="tn-full">${full}</span><span class="tn-short">${escapeSharedHtml(short)}</span></span>`;
+}
+
 function formatDateTime(value) {
     return value ? new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-') : '';
 }
@@ -166,6 +176,7 @@ window.sharedLogin = sharedLogin;
 window.sharedRegister = sharedRegister;
 window.sharedLogout = sharedLogout;
 window.gameName = gameName;
+window.tournamentNameHtml = tournamentNameHtml;
 window.formatDateTime = formatDateTime;
 window.proxiedLogoUrl = proxiedLogoUrl;
 window.logoHtml = logoHtml;

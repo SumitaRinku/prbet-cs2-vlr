@@ -1,7 +1,6 @@
 const express = require('express');
 const db = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
-const { getUserStreaks } = require('../utils/settlement');
 
 const router = express.Router();
 
@@ -25,17 +24,11 @@ router.get('/my', authenticateToken, (req, res) => {
         SELECT COUNT(*) total,
             SUM(CASE WHEN m.status = 'finished' AND m.is_forfeit = 0 THEN 1 ELSE 0 END) settled,
             SUM(COALESCE(p.points_earned, 0)) points,
-            SUM(CASE WHEN p.points_earned > 0 THEN 1 ELSE 0 END) correct,
-            SUM(COALESCE(p.streak_bonus, 0)) streak_bonus
+            SUM(CASE WHEN p.points_earned > 0 THEN 1 ELSE 0 END) correct
         FROM predictions p JOIN matches m ON m.id = p.match_id
         WHERE p.user_id = ?
     `).get(req.user.id);
-    res.json({ predictions, stats, streaks: getUserStreaks(req.user.id) });
-});
-
-// 用户在各赛事的连胜状态（当前连胜 / 历史最长），供主页赛事组徽标等轻量场景使用
-router.get('/streaks/me', authenticateToken, (req, res) => {
-    res.json({ streaks: getUserStreaks(req.user.id) });
+    res.json({ predictions, stats });
 });
 
 module.exports = router;

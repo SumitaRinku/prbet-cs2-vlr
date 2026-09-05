@@ -94,6 +94,7 @@
                         <summary>新增赛事</summary>
                         <div class="form-grid">
                             <input id="tourName" placeholder="赛事名称">
+                            <input id="tourShort" placeholder="简称（可选，移动端展示）">
                             <select id="tourGame"><option value="cs2">CS2</option><option value="valorant">Valorant</option></select>
                             <input id="tourBegin" type="date">
                             <input id="tourEnd" type="date">
@@ -113,7 +114,7 @@
                             <option value="manual">手动创建</option>
                         </select>
                     </div>
-                    <div class="table-wrap"><table><thead><tr><th>ID</th><th>名称</th><th>游戏</th><th>状态</th><th>开始</th><th>结束</th><th>比赛数</th><th>来源</th><th>操作</th></tr></thead><tbody id="tournaments"></tbody></table></div>
+                    <div class="table-wrap"><table><thead><tr><th>ID</th><th>名称</th><th>游戏</th><th>状态</th><th>级别</th><th>开始</th><th>结束</th><th>比赛数</th><th>来源</th><th>操作</th></tr></thead><tbody id="tournaments"></tbody></table></div>
                 </section>
 
                 <section id="tab-teams" class="panel admin-tab">

@@ -42,7 +42,14 @@
                 <option value="ongoing">进行中</option>
                 <option value="finished">已结束</option>
             </select>
+            <select id="tierFilter" onchange="setTier(this.value)">
+                <option value="">全部级别</option>
+                <option value="1">高级</option>
+                <option value="2">普通</option>
+                <option value="3">低级</option>
+            </select>
             <span id="tournamentCount" class="filter-result-count"></span>
+            <div id="brandFilters" class="brand-filter-list"></div>
         </div>
         <section id="tournaments" class="archive-list"></section>
     </main>

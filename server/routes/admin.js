@@ -5,8 +5,9 @@ const path = require('path');
 const db = require('../config/database');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const { syncPandascoreMatches, syncStatus } = require('../services/pandascoreService');
+const { TIER_SQL } = require('../services/tournamentTier');
 const { isValidScore } = require('../utils/scoring');
-const { settleMatch, recalculateUserScores, recalculateStreakBonuses } = require('../utils/settlement');
+const { settleMatch, recalculateUserScores } = require('../utils/settlement');
 const { sniffImageType } = require('./images');
 
 const router = express.Router();
@@ -113,21 +114,21 @@ router.get('/tournaments', (req, res) => {
         params.push(game_type);
     }
     const tournaments = db.prepare(`
-        SELECT t.*, COUNT(m.id) match_count
+        SELECT t.*, ${TIER_SQL} effective_tier, COUNT(m.id) match_count
         FROM tournaments t
         LEFT JOIN matches m ON m.tournament_id = t.id
         WHERE ${where}
         GROUP BY t.id
-        ORDER BY COALESCE(t.begin_at, t.created_at) DESC
+        ORDER BY effective_tier ASC, COALESCE(t.begin_at, t.created_at) DESC
     `).all(...params);
     res.json({ tournaments });
 });
 
 router.post('/tournaments', (req, res) => {
-    const { name, game_type = 'cs2', begin_at, end_at, is_active = 1 } = req.body;
+    const { name, short_name, game_type = 'cs2', begin_at, end_at, is_active = 1 } = req.body;
     if (!name) return res.status(400).json({ error: '赛事名称不能为空' });
     if (!['cs2', 'valorant'].includes(game_type)) return res.status(400).json({ error: '游戏类型无效' });
-    const result = db.prepare('INSERT INTO tournaments (name, game_type, is_active, name_locked, begin_at, end_at) VALUES (?, ?, ?, 1, ?, ?)').run(name, game_type, is_active ? 1 : 0, begin_at || null, end_at || null);
+    const result = db.prepare('INSERT INTO tournaments (name, short_name, game_type, is_active, name_locked, begin_at, end_at) VALUES (?, ?, ?, ?, 1, ?, ?)').run(name, short_name || null, game_type, is_active ? 1 : 0, begin_at || null, end_at || null);
     res.status(201).json({ id: result.lastInsertRowid });
 });
 
@@ -169,13 +170,20 @@ router.delete('/tournaments/:id/logo', (req, res) => {
 });
 
 router.put('/tournaments/:id', (req, res) => {
-    const { name, game_type, begin_at, end_at, is_active } = req.body;
+    const { name, short_name, game_type, begin_at, end_at, is_active, tier } = req.body;
     if (game_type && !['cs2', 'valorant'].includes(game_type)) return res.status(400).json({ error: '游戏类型无效' });
+    // 级别：未传字段保留现值；传 null/'' 清除（回到名称关键词自动推断）；传 1/2/3 手动固定，同步不覆盖。
+    if (tier !== undefined && tier !== null && tier !== '' && ![1, 2, 3, '1', '2', '3'].includes(tier)) {
+        return res.status(400).json({ error: '赛事级别无效' });
+    }
+    const tierInput = tier === undefined ? undefined : (tier === null || tier === '' ? null : Number(tier));
     const existing = db.prepare('SELECT id, is_active FROM tournaments WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: '赛事不存在' });
+    // 简称：未传字段保留现值；传空串清除；传非空字符串覆盖。NULLIF 保证空串落库为 NULL。
+    const shortNameInput = short_name === undefined ? null : String(short_name);
     const result = db.prepare(`
-        UPDATE tournaments SET name = COALESCE(?, name), name_locked = CASE WHEN ? IS NULL THEN name_locked ELSE 1 END, game_type = COALESCE(?, game_type), is_active = COALESCE(?, is_active), begin_at = COALESCE(?, begin_at), end_at = COALESCE(?, end_at) WHERE id = ?
-    `).run(name || null, name || null, game_type || null, is_active === undefined ? null : (is_active ? 1 : 0), begin_at || null, end_at || null, req.params.id);
+        UPDATE tournaments SET name = COALESCE(?, name), short_name = CASE WHEN ? IS NULL THEN short_name ELSE NULLIF(TRIM(?), '') END, name_locked = CASE WHEN ? IS NULL THEN name_locked ELSE 1 END, game_type = COALESCE(?, game_type), is_active = COALESCE(?, is_active), begin_at = COALESCE(?, begin_at), end_at = COALESCE(?, end_at), tier = CASE WHEN ? = 1 THEN ? ELSE tier END WHERE id = ?
+    `).run(name || null, shortNameInput, shortNameInput, name || null, game_type || null, is_active === undefined ? null : (is_active ? 1 : 0), begin_at || null, end_at || null, tierInput === undefined ? 0 : 1, tierInput ?? null, req.params.id);
     if (is_active !== undefined && existing.is_active !== (is_active ? 1 : 0)) applyTournamentActiveState(existing.id, is_active ? 1 : 0);
     res.json({ message: '赛事已更新' });
 });
@@ -297,7 +305,6 @@ router.put('/matches/:id', (req, res) => {
         // 赛果修正走 /result 接口，那里始终重新结算。
         if (nextStatus === 'finished' && existing.status !== 'finished') {
             settleMatch(existing.id);
-            recalculateStreakBonuses(existing.tournament_id);
             recalculateUserScores();
         }
         return result;
@@ -318,7 +325,6 @@ router.put('/matches/:id/result', (req, res) => {
             UPDATE matches SET team1_score = ?, team2_score = ?, winner_team_id = ?, status = 'finished', betting_enabled = 0 WHERE id = ?
         `).run(team1Score, team2Score, winnerId, match.id);
         const processed = settleMatch(match.id);
-        recalculateStreakBonuses(match.tournament_id);
         recalculateUserScores();
         return processed;
     });
@@ -339,7 +345,6 @@ router.put('/matches/:id/forfeit', (req, res) => {
             UPDATE matches SET is_forfeit = 1, status = 'finished', team1_score = ?, team2_score = ?, winner_team_id = ?, betting_enabled = 0 WHERE id = ?
         `).run(team1Score, team2Score, winnerId, match.id);
         const processed = settleMatch(match.id);
-        recalculateStreakBonuses(match.tournament_id);
         recalculateUserScores();
         return processed;
     });
@@ -359,7 +364,6 @@ router.delete('/matches/:id', (req, res) => {
     const match = db.prepare('SELECT id, tournament_id FROM matches WHERE id = ?').get(req.params.id);
     if (!match) return res.status(404).json({ error: '比赛不存在' });
     db.prepare('DELETE FROM matches WHERE id = ?').run(match.id);
-    recalculateStreakBonuses(match.tournament_id);
     recalculateUserScores();
     res.json({ message: '比赛已删除' });
 });
@@ -382,7 +386,6 @@ router.delete('/predictions/:id', (req, res) => {
     const prediction = db.prepare('SELECT p.id, m.tournament_id FROM predictions p JOIN matches m ON m.id = p.match_id WHERE p.id = ?').get(req.params.id);
     if (!prediction) return res.status(404).json({ error: '预测不存在' });
     db.prepare('DELETE FROM predictions WHERE id = ?').run(prediction.id);
-    recalculateStreakBonuses(prediction.tournament_id);
     recalculateUserScores();
     res.json({ message: '预测已删除' });
 });

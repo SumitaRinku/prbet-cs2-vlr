@@ -395,11 +395,20 @@ function renderMatches(rows) {
     </tr>`).join('') + moreRowsRow('matches', rows.length, 9) : emptyRow(9);
 }
 
+// 赛事级别列：显示推断结果（高级/普通/低级），手动固定过的加 ● 标记
+function adminTierCell(t) {
+    const tier = t.effective_tier;
+    const label = tier === 1 ? '高级' : tier === 3 ? '低级' : '普通';
+    const cls = tier === 1 ? 'tier-top' : tier === 3 ? 'tier-low' : '';
+    const manual = t.tier !== null && t.tier !== undefined ? ' <span class="tier-manual" title="手动设置，同步不覆盖">●</span>' : '';
+    return `<span class="tier-badge ${cls}">${label}</span>${manual}`;
+}
+
 function renderTournaments(rows) {
     tournaments.innerHTML = rows.length ? rows.slice(0, rowLimitOf('tournaments')).map(t => `<tr class="${t.is_active ? '' : 'disabled-row'}">
-        <td data-label="ID">${t.id}</td><td data-label="名称">${tournamentLogoImg(t.name, t.game_type, t.logo_url)}${escapeHtml(t.name)}</td><td data-label="游戏">${escapeHtml(t.game_type)}</td><td data-label="状态">${t.is_active ? '启用' : '禁用'}</td><td data-label="开始">${dateOnly(t.begin_at)}</td><td data-label="结束">${dateOnly(t.end_at)}</td><td data-label="比赛数">${t.match_count}</td><td data-label="来源">${escapeHtml(sourceOf(t) === 'pandascore' ? '自动同步' : '手动')}</td>
+        <td data-label="ID">${t.id}</td><td data-label="名称">${tournamentLogoImg(t.name, t.game_type, t.logo_url)}${escapeHtml(t.name)}</td><td data-label="游戏">${escapeHtml(t.game_type)}</td><td data-label="状态">${t.is_active ? '启用' : '禁用'}</td><td data-label="级别">${adminTierCell(t)}</td><td data-label="开始">${dateOnly(t.begin_at)}</td><td data-label="结束">${dateOnly(t.end_at)}</td><td data-label="比赛数">${t.match_count}</td><td data-label="来源">${escapeHtml(sourceOf(t) === 'pandascore' ? '自动同步' : '手动')}</td>
         <td data-label="操作" class="actions">${actionButton(t.is_active ? '禁用' : '启用', `toggleTournament(${t.id})`, !t.is_active)}${actionButton('编辑', `editTournament(${t.id})`)}${actionButton('传Logo', `uploadTournamentLogo(${t.id})`)}${t.logo_url && t.logo_url.startsWith('/uploads/') ? actionButton('删Logo', `removeTournamentLogo(${t.id})`, true) : ''}${actionButton('删除', `deleteTournament(${t.id})`, true)}</td>
-    </tr>`).join('') + moreRowsRow('tournaments', rows.length, 9) : emptyRow(9);
+    </tr>`).join('') + moreRowsRow('tournaments', rows.length, 10) : emptyRow(10);
 }
 
 function renderTeams(rows) {
@@ -426,7 +435,7 @@ function renderPredictions(rows) {
 // ---------- 赛事操作 ----------
 
 async function createTournament() {
-    await api('/admin/tournaments', { method: 'POST', body: { name: tourName.value, game_type: tourGame.value, begin_at: tourBegin.value, end_at: tourEnd.value, is_active: 1 } });
+    await api('/admin/tournaments', { method: 'POST', body: { name: tourName.value, short_name: tourShort?.value || '', game_type: tourGame.value, begin_at: tourBegin.value, end_at: tourEnd.value, is_active: 1 } });
     tourName.value = '';
     document.getElementById('tournamentCreate').open = false;
     await loadAdmin();
@@ -435,12 +444,15 @@ async function createTournament() {
 function editTournament(id) {
     const row = state.tournaments.find(item => item.id === id);
     if (!row) { alert('赛事不存在，请刷新'); return; }
+    const tierValue = row.tier === null || row.tier === undefined ? '' : String(row.tier);
     openAdminModal({
         title: '编辑赛事',
         hint: `ID ${row.id} · ${row.match_count || 0} 场比赛 · 来源：${sourceOf(row) === 'pandascore' ? '自动同步' : '手动'}`,
         body: [
             modalField('名称', `<input id="mTourName" value="${escapeHtml(row.name)}">`),
+            modalField('简称（主页筛选/移动端展示）', `<input id="mTourShort" value="${escapeHtml(row.short_name || '')}" placeholder="如：IEM 科隆">`),
             modalField('游戏', `<select id="mTourGame"><option value="cs2"${row.game_type === 'cs2' ? ' selected' : ''}>CS2</option><option value="valorant"${row.game_type === 'valorant' ? ' selected' : ''}>Valorant</option></select>`),
+            modalField('级别（赛事回看排序；手动设置后同步不覆盖）', `<select id="mTourTier"><option value=""${tierValue === '' ? ' selected' : ''}>自动（按名称关键词：Major/Masters/Champions/大师赛→高级，Qualifier/预选赛→低级）</option><option value="1"${tierValue === '1' ? ' selected' : ''}>高级（Major 级）</option><option value="2"${tierValue === '2' ? ' selected' : ''}>普通</option><option value="3"${tierValue === '3' ? ' selected' : ''}>低级（预选赛级）</option></select>`),
             modalField('开始日期', `<input id="mTourBegin" type="date" value="${dateOnly(row.begin_at)}">`),
             modalField('结束日期', `<input id="mTourEnd" type="date" value="${dateOnly(row.end_at)}">`),
             modalField('启用状态', `<select id="mTourActive"><option value="1"${row.is_active ? ' selected' : ''}>启用</option><option value="0"${row.is_active ? '' : ' selected'}>禁用</option></select>`)
@@ -448,7 +460,9 @@ function editTournament(id) {
         onSubmit: async () => {
             await api(`/admin/tournaments/${id}`, { method: 'PUT', body: {
                 name: mTourName.value,
+                short_name: mTourShort.value,
                 game_type: mTourGame.value,
+                tier: mTourTier.value === '' ? null : Number(mTourTier.value),
                 begin_at: mTourBegin.value || null,
                 end_at: mTourEnd.value || null,
                 is_active: mTourActive.value === '1'

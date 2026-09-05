@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const db = require('./database');
-const { settleMatch, recalculateUserScores, recalculateStreakBonuses } = require('../utils/settlement');
+const { settleMatch, recalculateUserScores } = require('../utils/settlement');
 
 function ensureDatabase() {
     db.exec(`
@@ -124,6 +124,16 @@ function ensureDatabase() {
         // 定时同步自动回填，用于前端赛事标识展示。
         db.exec('ALTER TABLE tournaments ADD COLUMN logo_url TEXT');
     }
+    if (!tournamentColumns.includes('short_name')) {
+        // 手动维护的赛事简称：同步不覆盖，移动端或名称过长时替代全名展示。
+        db.exec('ALTER TABLE tournaments ADD COLUMN short_name TEXT');
+    }
+    if (!tournamentColumns.includes('tier')) {
+        // 赛事级别（1=高级 2=普通 3=低级）：NULL 表示未手动设置，查询时按名称关键词自动推断
+        // （CS2: Major→高级 / Qualifier→低级；Valorant: Masters/Champions→高级）。
+        // 手动设置后 PandaScore 同步不覆盖（同步 UPDATE 字段清单不含 tier）。
+        db.exec('ALTER TABLE tournaments ADD COLUMN tier INTEGER');
+    }
     if (!teamColumns.includes('dark_logo_url')) {
         // 暗色主题专用队标：来自 PandaScore dark_mode_image_url（白色版），
         // 数据源确认无合适对比度时为 null，前端回退原 logo + 浅色底板。
@@ -147,18 +157,11 @@ function ensureDatabase() {
     }
 
     const predictionColumns = db.prepare('PRAGMA table_info(predictions)').all().map(column => column.name);
-    if (!predictionColumns.includes('streak_bonus')) {
-        // 连胜加成：连胜达到档位后每场预测的额外加分，与基础分分开记录。
-        // 首次加列后对存量预测按赛事回填加成并重建总分（幂等重算）。
-        db.exec('ALTER TABLE predictions ADD COLUMN streak_bonus INTEGER');
-        const backfill = db.transaction(() => {
-            // predictions 无 tournament_id，经 matches 关联取涉及预测的赛事
-            const tournaments = db.prepare('SELECT DISTINCT m.tournament_id id FROM predictions p JOIN matches m ON m.id = p.match_id').all();
-            for (const row of tournaments) recalculateStreakBonuses(row.id);
-            recalculateUserScores();
-        });
-        backfill();
-        console.log('[init-db] 已启用连胜加成并为存量预测回填 streak_bonus');
+    if (predictionColumns.includes('streak_bonus')) {
+        // 连胜加成机制已整体移除：删掉遗留列并按基础分重建总分（幂等：列不存在则跳过）。
+        db.exec('ALTER TABLE predictions DROP COLUMN streak_bonus');
+        recalculateUserScores();
+        console.log('[init-db] 已移除遗留 streak_bonus 列并按基础分重建总分');
     }
 
     // 历史弃权局回填：旧逻辑把 PandaScore 的 canceled+winner 弃权局只记成 cancelled、

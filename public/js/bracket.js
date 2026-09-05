@@ -383,6 +383,18 @@ function isLiveMatch(match) {
     return !!match.match_time && new Date(match.match_time).getTime() <= Date.now();
 }
 
+// 赛程图卡片上方角标：进行中 → LIVE；未开赛 → 开赛时间（MM-DD HH:mm）。
+// 已结束/弃权/TBD/占位不显示。纯函数：时间用本地时区格式化，不依赖页面全局。
+function bracketWhenChip(match) {
+    if (match.__placeholder || isTbdMatch(match)) return '';
+    if (isLiveMatch(match)) return '<span class="bracket-chip live">LIVE</span>';
+    if (match.status !== 'upcoming' || !match.match_time) return '';
+    const date = new Date(match.match_time);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = value => String(value).padStart(2, '0');
+    return `<span class="bracket-chip when">${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}</span>`;
+}
+
 function swissMatchNodeClean(match) {
     // 只有前端合成的骨架槽位不可点击；真实 TBD 对局仍可定位到赛事详情。
     const clickable = !match.__placeholder;
@@ -391,13 +403,17 @@ function swissMatchNodeClean(match) {
         ? `onclick="focusTournamentMatch(${match.id})"`
         : 'disabled aria-disabled="true"';
     const classes = ['sw2-match', clickable ? '' : 'tbd', live ? 'live' : ''].filter(Boolean).join(' ');
-    const badge = live ? '<span class="sw2-live">LIVE</span>' : '';
-    return `<button type="button" class="${classes}" ${attrs} title="${escapeHtml(match.name || 'Swiss match')}">
+    const badge = live ? '<span class="bracket-chip live">LIVE</span>' : '';
+    const button = `<button type="button" class="${classes}" ${attrs} title="${escapeHtml(match.name || 'Swiss match')}">
         ${badge}
         ${swissMatchLogo(match, 1)}
         <span class="sw2-vs">vs</span>
         ${swissMatchLogo(match, 2)}
     </button>`;
+    if (badge) return button;
+    // 未开赛：开赛时间以文档流小标签放在卡上方（不悬空叠压上一张卡）
+    const when = bracketWhenChip(match);
+    return when ? `<div class="sw2-slot">${when}${button}</div>` : button;
 }
 
 function swissResultTeamClean(entry) {
@@ -551,7 +567,8 @@ function playoffLayout(groups, narrowFlags = null) {
     const narrowW = compact ? 92 : 116;
     const cardH = compact ? 58 : 68;
     const xGap = compact ? 34 : 64;
-    const yGap = compact ? 10 : 12;
+    // 行间距需容纳未开赛卡片上方的开赛时间角标（约 11px 高），过窄会与上一行卡片贴住
+    const yGap = compact ? 18 : 20;
     const startX = compact ? 8 : 20;
     const startY = compact ? 42 : 54;
     const widths = groups.map((_, index) => narrowFlags && narrowFlags[index] ? narrowW : cardW);
@@ -617,10 +634,11 @@ function playoffTeamRowClean(match, side) {
 function playoffCardClean(match) {
     const title = match.name || '淘汰赛';
     const tbd = isTbdMatch(match);
+    const live = !match.__placeholder && !tbd && isLiveMatch(match);
     const interaction = match.__placeholder
         ? ''
         : `role="button" tabindex="0" onclick="focusTournamentMatch(${match.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();focusTournamentMatch(${match.id});}"`;
-    return `<div class="pb2-card ${match.status || ''} ${tbd ? 'tbd' : ''}" ${interaction} title="${escapeHtml(title)}">
+    return `<div class="pb2-card ${match.status || ''} ${tbd ? 'tbd' : ''} ${live ? 'live' : ''}" ${interaction} title="${escapeHtml(title)}">
         ${playoffTeamRowClean(match, 1)}
         ${playoffTeamRowClean(match, 2)}
     </div>`;
@@ -642,7 +660,7 @@ function playoffDiagram(matches) {
                 ${layout.lines.map(path => `<path d="${path}"></path>`).join('')}
             </svg>
             ${groups.map((group, roundIndex) => `<div class="pb2-title" style="left:${layout.xs[roundIndex]}px;top:18px;width:${layout.widths[roundIndex]}px">${escapeHtml(playoffDisplayLabel(group.label))}</div>`).join('')}
-            ${groups.map((group, roundIndex) => group.matches.map((match, index) => `<div class="pb2-slot${narrowFlags[roundIndex] ? ' pb2-narrow' : ''}" style="left:${layout.xs[roundIndex]}px;top:${layout.ys[roundIndex][index]}px;width:${layout.widths[roundIndex]}px;height:${layout.cardH}px">${playoffCardClean(match)}</div>`).join('')).join('')}
+            ${groups.map((group, roundIndex) => group.matches.map((match, index) => `<div class="pb2-slot${narrowFlags[roundIndex] ? ' pb2-narrow' : ''}" style="left:${layout.xs[roundIndex]}px;top:${layout.ys[roundIndex][index]}px;width:${layout.widths[roundIndex]}px;height:${layout.cardH}px">${bracketWhenChip(match)}${playoffCardClean(match)}</div>`).join('')).join('')}
         </div>
     </div>`;
 }
@@ -680,10 +698,11 @@ function bracketTeamRowClean(match, side, prefix = 'de', flow = null) {
 function compactBracketCard(match, prefix = 'de', flow = null) {
     const title = match.name || 'Bracket match';
     const tbd = isTbdMatch(match);
+    const live = !match.__placeholder && !tbd && isLiveMatch(match);
     const interaction = match.__placeholder
         ? ''
         : `role="button" tabindex="0" onclick="focusTournamentMatch(${match.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();focusTournamentMatch(${match.id});}"`;
-    return `<div class="${prefix}-card ${match.status || ''} ${tbd ? 'tbd' : ''}" ${interaction} title="${escapeHtml(title)}">
+    return `<div class="${prefix}-card ${match.status || ''} ${tbd ? 'tbd' : ''} ${live ? 'live' : ''}" ${interaction} title="${escapeHtml(title)}">
         ${bracketTeamRowClean(match, 1, prefix, flow)}
         ${bracketTeamRowClean(match, 2, prefix, flow)}
     </div>`;
@@ -774,25 +793,26 @@ function doubleElimRound(label, matches, laneHeight, cardHeight, flow = null, na
         <div class="de-round-title">${escapeHtml(label)}</div>
         <div class="de-card-list bracket-positioned" style="height:${laneHeight}px">${matches.map((match, index) => {
             const top = Math.round((index + 0.5) * slotHeight - cardHeight / 2);
-            return `<div class="de-card-slot" style="top:${top}px;height:${cardHeight}px">${compactBracketCard(match, 'de', flow)}</div>`;
+            // 时间/LIVE 角标挂在 slot 上（卡片自身 overflow:hidden 会裁掉悬挂角标）
+            return `<div class="de-card-slot" style="top:${top}px;height:${cardHeight}px">${bracketWhenChip(match)}${compactBracketCard(match, 'de', flow)}</div>`;
         }).join('') || '<div class="de-empty">TBD</div>'}</div>
     </section>`;
 }
 
-function doubleElimLane(label, rounds, tone) {
+function doubleElimLane(label, rounds, tone, bracketNarrowFlags = null) {
     const cardHeight = 48;
-    const cardGap = 8;
+    // 行间距需容纳未开赛卡片上方的开赛时间角标（约 11px 高），14px 起才不显局促
+    const cardGap = 14;
     const maxMatches = Math.max(1, ...rounds.map(round => round.matches.length));
-    const laneHeight = maxMatches * cardHeight + Math.max(0, maxMatches - 1) * cardGap;
-    // 移动端窄列：整轮未定/已结束的轮次收窄；全部可压缩时保留该 lane 最右轮全宽。
-    const narrowFlags = isCompactBracketViewport()
-        ? computeNarrowFlags(rounds.map(round => round.matches))
-        : rounds.map(() => false);
+    // 按精确间距计算：最多对阵数的轮次里相邻卡片的实际间隙 == cardGap
+    const laneHeight = maxMatches * (cardHeight + cardGap);
     return `<div class="de-lane ${tone}">
         <div class="de-lane-label">${escapeHtml(label)}</div>
         <div class="de-lane-rounds" style="--de-round-count:${Math.max(rounds.length, 1)}">${rounds.map((round, index) => {
             const flow = tone === 'upper' && index < rounds.length - 1 ? 'drop' : index === rounds.length - 1 ? 'advance' : null;
-            return doubleElimRound(round.label, round.matches, laneHeight, cardHeight, flow, narrowFlags[index]);
+            // 窄列旗标由 doubleElimDiagram 按整图统一计算（UB/LB 下标对齐），两条泳道列宽保持一致
+            const narrow = bracketNarrowFlags ? bracketNarrowFlags[index] === true : false;
+            return doubleElimRound(round.label, round.matches, laneHeight, cardHeight, flow, narrow);
         }).join('')}</div>
     </div>`;
 }
@@ -813,11 +833,21 @@ function doubleElimDiagram(matches) {
     const lowerRounds = doubleElimRounds(map, 'lower');
     const hasDoubleElim = upperRounds.length && lowerRounds.length;
     if (!hasDoubleElim) return '';
+    // 移动端窄列：按「轮次下标」合并上下泳道的比赛统一判定，UB/LB 同列同宽；
+    // 全部可压缩时保留最右一列全宽展示最终结果。
+    const laneCount = Math.max(upperRounds.length, lowerRounds.length);
+    const roundsByIndex = Array.from({ length: laneCount }, (_, index) => [
+        ...(upperRounds[index]?.matches || []),
+        ...(lowerRounds[index]?.matches || [])
+    ]);
+    const narrowFlags = isCompactBracketViewport()
+        ? computeNarrowFlags(roundsByIndex)
+        : roundsByIndex.map(() => false);
     return `<div class="de-bracket-clean" aria-label="赛事赛程图">
         <div class="de-overview-title">Bracket overview</div>
         <section class="de-group de-full-bracket">
-            ${doubleElimLane('Upper bracket', upperRounds, 'upper')}
-            ${doubleElimLane('Lower bracket', lowerRounds, 'lower')}
+            ${doubleElimLane('Upper bracket', upperRounds, 'upper', narrowFlags)}
+            ${doubleElimLane('Lower bracket', lowerRounds, 'lower', narrowFlags)}
         </section>
         ${finalBracketOverview(map)}
     </div>`;

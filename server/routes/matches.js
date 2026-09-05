@@ -21,7 +21,7 @@ function isTbdMatch(match) {
 
 function matchSelect(where = '1=1') {
     return `
-        SELECT m.*, tour.name tournament_name, tour.game_type, tour.logo_url tournament_logo_url,
+        SELECT m.*, tour.name tournament_name, tour.short_name tournament_short_name, tour.game_type, tour.logo_url tournament_logo_url,
             t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url, t1.dark_logo_url team1_dark_logo_url,
             t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url, t2.dark_logo_url team2_dark_logo_url,
             (SELECT COUNT(*) FROM predictions p WHERE p.match_id = m.id) prediction_count
@@ -86,7 +86,7 @@ router.get('/upcoming', optionalAuth, (req, res) => {
     const tournamentWhere = baseWhere;
     const tournamentParams = [...baseParams];
     const tournaments = db.prepare(`
-        SELECT tour.id, tour.name, tour.game_type, tour.logo_url,
+        SELECT tour.id, tour.name, tour.short_name, tour.game_type, tour.logo_url,
             COUNT(*) match_count,
             SUM(CASE WHEN ${HOME_PHASE_SQL} = 'finished' THEN 1 ELSE 0 END) finished_count,
             SUM(CASE WHEN ${HOME_PHASE_SQL} = 'ongoing' THEN 1 ELSE 0 END) ongoing_count,

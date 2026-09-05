@@ -272,7 +272,7 @@
 
     // ---------- 预测人 ----------
 
-    function drawUserLine(ctx, user, streak) {
+    function drawUserLine(ctx, user) {
         const cy = 800;
         const name = user.username;
         const score = `${user.total_score || 0} 分`;
@@ -281,28 +281,12 @@
         ctx.font = font(400, 32);
         const sw = ctx.measureText(score).width;
 
-        let streakText = '', streakW = 0;
-        if (streak >= 2) {
-            streakText = `连胜 ${streak}`;
-            ctx.font = font(600, 26);
-            streakW = ctx.measureText(streakText).width + 44;
-        }
         const gap = 20;
-        const total = nw + gap + sw + (streakW ? gap + streakW : 0);
+        const total = nw + gap + sw;
         let x = CARD_W / 2 - total / 2;
 
         text(ctx, name, x, cy, 700, 40, C.text, 'left');
-        x += nw + gap;
-        text(ctx, score, x, cy, 400, 32, C.textDim, 'left');
-        if (streakW) {
-            x += sw + gap;
-            const bh = 48;
-            const by = cy - bh / 2;
-            ctx.fillStyle = C.gold;
-            roundRect(ctx, x, by, streakW, bh, 6);
-            ctx.fill();
-            text(ctx, streakText, x + streakW / 2, cy + 1, 600, 26, C.goldDark);
-        }
+        text(ctx, score, x + nw + gap, cy, 400, 32, C.textDim, 'left');
     }
 
     // ---------- 底部：二维码 + 引导 ----------
@@ -357,7 +341,7 @@
         return typeof window.proxiedLogoUrl === 'function' ? window.proxiedLogoUrl(url) : url;
     }
 
-    async function renderShareCard(match, user, streak) {
+    async function renderShareCard(match, user) {
         await loadFonts();
         detectTheme();
         const canvas = document.createElement('canvas');
@@ -379,7 +363,7 @@
         drawTournamentInfo(ctx, match);
         drawMatchup(ctx, match, logo1, logo2);
         drawResult(ctx, match);
-        drawUserLine(ctx, user, streak);
+        drawUserLine(ctx, user);
         drawFooter(ctx, qr);
         return canvas.toDataURL('image/png');
     }
@@ -443,8 +427,7 @@
         document.body.classList.add('modal-open');
         try {
             currentMatch = match;
-            const streak = (context.streaks?.[String(match.tournament_id)]) || 0;
-            img.src = await renderShareCard(match, user, streak);
+            img.src = await renderShareCard(match, user);
         } catch (error) {
             alert('分享图生成失败：' + (error.message || '请稍后重试'));
             closeShareModal();

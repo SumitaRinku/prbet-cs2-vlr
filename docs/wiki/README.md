@@ -13,11 +13,11 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [01-项目概览](./01-项目概览.md) | 项目定位、功能特性、技术栈、目录结构总览 |
-| [02-系统架构](./02-系统架构.md) | 分层架构图、请求处理流程、模块依赖关系 |
+| [01-项目概览](./01-项目概览.md) | 项目定位、功能特性（竞猜/分享图/主题/简称）、技术栈、目录结构总览 |
+| [02-系统架构](./02-系统架构.md) | 分层架构图、请求处理流程、前后端模块依赖关系 |
 | [03-数据库设计](./03-数据库设计.md) | 数据表结构、索引、外键约束、启动时迁移机制 |
 | [04-后端模块详解](./04-后端模块详解.md) | 入口、中间件、路由、服务、工具层的关键函数说明 |
-| [05-前端模块详解](./05-前端模块详解.md) | 页面与脚本模块职责、赛程图（bracket）渲染管线 |
+| [05-前端模块详解](./05-前端模块详解.md) | 页面与脚本模块职责、赛程图（bracket）渲染管线、分享图合成 |
 | [06-API参考](./06-API参考.md) | 全部 REST API 端点：方法、路径、鉴权、参数、响应 |
 | [07-核心业务流程](./07-核心业务流程.md) | PandaScore 同步、预测提交、积分结算、TBD / 弃权处理 |
 | [08-部署与运维](./08-部署与运维.md) | 本地运行、环境变量、生产部署、安全说明、维护脚本 |
@@ -38,7 +38,7 @@
 Express（server/index.js，默认监听 127.0.0.1:3000）
    ├── middleware/  auth（JWT）、rateLimit（滑动窗口限流）
    ├── routes/      auth / matches / tournaments / predictions
-   │                leaderboard / images / teams / admin
+   │                leaderboard / images / qrcode / teams / admin
    ├── services/    pandascoreService（定时同步 PandaScore → SQLite）
    ├── utils/       scoring（比分与积分）、settlement（幂等结算）
    └── config/      database（SQLite 连接）、init-db（建表/迁移）

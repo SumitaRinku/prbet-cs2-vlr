@@ -32,10 +32,10 @@ Base URL：`/api`。除标注外均为 JSON 请求/响应。
 | GET | `/` | 👤 | 通用比赛列表。query：`status`、`game_type`、`tournament_id`；返回 `{matches}`（≤200 条，含双侧队伍/赛事信息、prediction_count；登录附 `user_prediction`）。只含活跃赛事、排除 TBD |
 | GET | `/upcoming` | 👤 | 首页聚合。query：`game_type`、`tournament_id`、`status`（finished/ongoing/upcoming）。返回 `{matches, filters: {status_counts, tournaments, finished_window_days}}`；「已结束」窗口 1 天，每行附 `display_status` |
 | GET | `/:id` | 👤 | 比赛详情 `{match}`，附 `possible_scores`（该赛制全部合法比分）；登录附 `user_prediction` |
-| GET | `/:id/predictions` | 🌐 | 已结算比赛的预测明细 `{match, predictions[]}`（用户名、预测比分、得分，按得分降序）；未结算 400 |
+| GET | `/:id/predictions` | 🌐 | 已结算比赛的预测明细 `{match, predictions[]}`（用户名、预测比分、预测胜者、得分，按得分降序）；未结算 400 |
 | POST | `/:id/predictions` | 🔒 | 提交/更新预测。body `{predicted_winner_id, predicted_team1_score, predicted_team2_score}`。校验：非 TBD、status=upcoming、betting_enabled、未开赛、胜者合法、比分合法（`isValidScore`）且与胜者一致。已存在则更新（200），否则 201 |
 | DELETE | `/:id/predictions` | 🔒 | 取消预测（仅 upcoming 且未开赛）；无预测 404 |
-| GET | `/:id/head2head` | 🌐 | 对阵分析：`{match, team1/team2: {wins, losses, label, recent[]}, head_to_head[]}`（各近 10 场，排除弃权局） |
+| GET | `/:id/head2head` | 🌐 | 对阵分析：`{match, team1/team2: {wins, losses, label, recent[]}, head_to_head[]}`（各近 10 场，排除弃权局）。近况与交手均带 `match_time < 本场开赛时间` 过滤——**赛前视角**，比赛结束后回看口径不变 |
 
 ## /api/tournaments — 赛事（routes/tournaments.js）
 
@@ -50,7 +50,7 @@ Base URL：`/api`。除标注外均为 JSON 请求/响应。
 
 | 方法 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
-| GET | `/my` | 🔒 | `{predictions, stats}`：全部预测（JOIN 比赛/队伍/赛事完整字段，按比赛时间倒序）+ stats `{total, settled, points, correct}`（settled 排除弃权局） |
+| GET | `/my` | 🔒 | `{predictions, stats}`：全部预测（JOIN 比赛/队伍/赛事完整字段，含 `tournament_id`、双侧队伍 id，按比赛时间倒序）+ stats `{total, settled, points, correct}`（settled 排除弃权局） |
 
 ## /api/leaderboard — 排行榜（routes/leaderboard.js）
 
@@ -66,6 +66,12 @@ Base URL：`/api`。除标注外均为 JSON 请求/响应。
 | 方法 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
 | GET | `/team-logo?url=...` | 🌐 | 队伍/赛事 logo 安全代理。仅接受 teams/tournaments 表中已注册的 URL；SSRF 防护（内网 IP 拦截、DNS 全记录校验、固定 IP 连接防 rebinding、重定向逐跳校验）；≤2MB、12s 超时、仅放行图片内容（content-type + 文件头嗅探）。成功返回图片字节（缓存 1 天 + nosniff + CSP）；失败 400/403/502 |
+
+## /api/qrcode — 二维码（routes/qrcode.js）
+
+| 方法 | 路径 | 鉴权 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/?text=<url>&size=<n>` | 🌐 | 生成 PNG 二维码（供分享图 canvas 同源绘制，避免跨域污染）。约束：`text` 必填 ≤512 字符且必须是合法 http/https URL；`size` 钳制 160–640（默认 320）。响应 `Cache-Control: max-age=86400`；参数无效 400 |
 
 ## /api/teams — 队伍（routes/teams.js）
 
@@ -100,7 +106,9 @@ Base URL：`/api`。除标注外均为 JSON 请求/响应。
 | --- | --- | --- |
 | GET | `/tournaments` | 全部赛事（含禁用，含 match_count）。query：`game_type` |
 | POST | `/tournaments` | 创建。body `{name, game_type?, begin_at?, end_at?, is_active?}`（name_locked=1） |
-| PUT | `/tournaments/:id` | 更新（传 name 即锁定；is_active 变化联动该赛事 betting） |
+| PUT | `/tournaments/:id` | 更新（传 name 即锁定；`short_name` 未传保留 / 空串清除 / 非空覆盖；is_active 变化联动该赛事 betting） |
+| PUT | `/tournaments/:id/logo` | **上传赛事 logo**。body 为**二进制图片**（非 JSON，`express.raw` 接收 image/*，≤2MB），格式以 magic bytes 嗅探为准（PNG/JPEG/GIF/WebP）。落盘 `data/uploads/tournament/<id>.<ext>`（旧文件清理），写 `logo_url = /uploads/tournament/...`；同步不覆盖该类 logo |
+| DELETE | `/tournaments/:id/logo` | 清除手动上传 logo（`logo_url` 置 NULL，回退名称匹配的厂牌 logo） |
 | PUT | `/tournaments/:id/toggle-active` | 启用/禁用切换，返回 `{is_active}` |
 | DELETE | `/tournaments/:id` | 删除（有比赛拒绝 400） |
 
@@ -120,7 +128,7 @@ Base URL：`/api`。除标注外均为 JSON 请求/响应。
 | GET | `/matches` | 列表。query：`game_type`、`status`、`limit`（≤1000 默认 300） |
 | POST | `/matches` | 创建。body `{tournament_id, team1_id, team2_id, name?, format?, match_time, betting_enabled?}` |
 | PUT | `/matches/:id` | 更新基础字段。**置 status=finished 必须已有完整赛果**（引导走 /result）；状态跳变为 finished 时自动结算+重建总分 |
-| PUT | `/matches/:id/result` | **录赛果**。body `{team1_score, team2_score}`；校验 `isValidScore` → 推导胜者 → 事务：更新+settleMatch+recalculateUserScores。返回 `{predictions_processed}` |
+| PUT | `/matches/:id/result` | **录赛果**。body `{team1_score, team2_score}`；校验 `isValidScore` → 推导胜者 → 事务：更新+settleMatch+recalculateStreakBonuses+recalculateUserScores。返回 `{predictions_processed}` |
 | PUT | `/matches/:id/forfeit` | **弃权标记**。body `{winner_team_id}`；按 1-0 记录、is_forfeit=1、0 分结算 |
 | PUT | `/matches/:id/betting` | 预测开关切换，返回 `{betting_enabled}` |
 | DELETE | `/matches/:id` | 删除（级联删预测，重算总分） |
@@ -143,7 +151,8 @@ Base URL：`/api`。除标注外均为 JSON 请求/响应。
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/`、`/tournaments.html`、`/leaderboard.html`、`/profile.html`、`/teams.html`、`/admin`、`/admin/` | 读对应 HTML 并注入 ICP 备案号后返回 |
-| GET | `/js/*`、`/css/*`、`/images/*` 等 | `express.static(publicDir)` |
+| GET | `/js/*`、`/css/*`、`/images/*`、`/fonts/*` 等 | `express.static(publicDir)` |
+| GET | `/uploads/*` | `express.static(data/uploads)`（管理员上传的赛事 logo，7 天缓存，目录不存在时 fallthrough） |
 | GET | `*`（兜底） | 返回注入后的 index.html |
 
 ## 响应示例

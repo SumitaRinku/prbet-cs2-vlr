@@ -1,5 +1,5 @@
 const db = require('../config/database');
-const { settleMatch, recalculateUserScores, recalculateStreakBonuses } = require('../utils/settlement');
+const { settleMatch, recalculateUserScores } = require('../utils/settlement');
 
 const SOURCE = 'pandascore';
 const BASE_URL = process.env.PANDASCORE_BASE_URL || 'https://api.pandascore.co';
@@ -398,7 +398,6 @@ async function syncPandascoreMatches(mode = 'manual') {
 
         const tx = db.transaction(() => {
             let scoresChanged = false;
-            const settledTournaments = new Set();
             for (const row of rows) {
                 const result = upsertMatch(row, now);
                 if (!result.skipped) {
@@ -409,14 +408,8 @@ async function syncPandascoreMatches(mode = 'manual') {
                     if (result.settle) {
                         const { changed } = settleMatch(result.id);
                         if (changed) scoresChanged = true;
-                        const match = db.prepare('SELECT tournament_id FROM matches WHERE id = ?').get(result.id);
-                        if (match) settledTournaments.add(match.tournament_id);
                     }
                 }
-            }
-            // 结算过的赛事重算连胜加成（含同轮多场的判定），加成有变化同样需要重建总分
-            for (const tournamentId of settledTournaments) {
-                if (recalculateStreakBonuses(tournamentId).changed) scoresChanged = true;
             }
             pruneExpiredInactiveTournaments(now);
             // 全部预测算完后统一重建总分，作为唯一权威来源，避免增量漂移

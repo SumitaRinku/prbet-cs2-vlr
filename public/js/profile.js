@@ -1,4 +1,4 @@
-const profileState = { predictions: [], stats: null, streaks: [], streakMap: {}, visibleCount: 20 };
+const profileState = { predictions: [], stats: null, visibleCount: 20 };
 const PREDICTION_PAGE_SIZE = 20;
 
 function escapeHtml(value) {
@@ -78,19 +78,6 @@ function loadMorePredictions() {
     renderPredictions();
 }
 
-// 连胜列表：仅显示有连胜记录的赛事，按当前连胜降序、最长连胜次之
-function renderStreaks() {
-    const streaks = (profileState.streaks || []).filter(item => item.current > 0 || item.best > 0)
-        .sort((a, b) => (b.current - a.current) || (b.best - a.best));
-    if (!streaks.length) {
-        streakList.innerHTML = '<div class="empty-state"><h3>暂无连胜记录</h3><p>在赛事中连续猜对即可累积连胜并获得额外加分。</p></div>';
-        return;
-    }
-    streakList.innerHTML = streaks.map(item => `<div class="streak-item">
-        <span class="streak-name"><b>${escapeHtml(item.tournament_name)}</b><small>${gameName(item.game_type)}</small></span>
-        <span class="streak-val">${streakBadgeHtml(item.current)}<span>最长 ${item.best} 轮</span></span>
-    </div>`).join('');
-}
 
 function renderSummary() {
     const stats = profileState.stats || {};
@@ -103,7 +90,6 @@ function renderSummary() {
     statSettled.textContent = settled;
     statPoints.textContent = stats.points || 0;
     statRate.textContent = settled ? `${Math.round((correct / settled) * 100)}%` : '0%';
-    if (statStreakBonus) statStreakBonus.textContent = `+${stats.streak_bonus || 0}`;
 }
 
 async function loadProfile() {
@@ -117,11 +103,7 @@ async function loadProfile() {
     const data = await sharedApi('/predictions/my');
     profileState.predictions = data.predictions;
     profileState.stats = data.stats;
-    profileState.streaks = data.streaks || [];
-    // 连胜映射：tournament_id -> 当前连胜（分享卡用，与 app.js 的 myStreaks 结构一致）
-    profileState.streakMap = Object.fromEntries(profileState.streaks.map(item => [String(item.tournament_id), item.current]));
     renderSummary();
-    renderStreaks();
     renderPredictions();
 }
 
@@ -177,7 +159,7 @@ window.getMatchForShare = matchId => {
     };
 };
 
-window.getShareContext = () => ({ user: sharedState.user, streaks: profileState.streakMap });
+window.getShareContext = () => ({ user: sharedState.user });
 
 function sharePredictionFromProfile(matchId) {
     if (typeof window.sharePrediction === 'function') window.sharePrediction(matchId);

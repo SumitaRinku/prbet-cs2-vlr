@@ -261,7 +261,7 @@ function matchCard(match) {
                     <div><strong>${escapeHtml(match.team2_short_name || match.team2_name)}</strong><small>${escapeHtml(match.team2_name)}</small></div>
                 </a>
             </div>
-            <div class="match-footer"><span>${match.prediction_count || 0} 人预测</span><button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button></div>
+            <div class="match-footer"><span>${match.prediction_count || 0} 人预测</span>${isFinished ? `<button class="link-btn" onclick="event.stopPropagation(); showMatchPredictions(${match.id})">查看预测详情</button>` : ''}<button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button></div>
             ${prediction ? `<div class="user-prediction ${predictionClass}"><strong>我的预测</strong><span>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>${match.is_forfeit ? '<b>弃权不计分</b>' : prediction.points_earned !== null ? `<b>+${prediction.points_earned} 分</b>` : '<b>待结算</b>'}<button class="link-btn share-trigger" onclick="event.stopPropagation(); sharePrediction(${match.id})" title="生成分享图">分享</button></div>` : ''}
             ${predictionFormHtml}
         </article>`;
@@ -324,14 +324,16 @@ function renderHomeFilters(filters) {
             </button>`).join('');
     }
     const allTournamentCount = state.tournaments.reduce((total, tournament) => total + (tournament.match_count || 0), 0);
+    // 筛选固定显示简称（管理面板维护），无简称回退全名；title 悬浮仍显示全名
+    const tournamentFilterLabel = tournament => tournament.short_name || tournament.name;
     const tournamentButton = tournament => `<button type="button" class="tournament-filter ${String(state.tournament) === String(tournament.id) ? 'active' : ''}" onclick="setTournament('${tournament.id}')" title="${escapeHtml(tournament.name)}">
-        ${tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url)}<span>${escapeHtml(tournament.name)}</span><b>${tournament.match_count || 0}</b>
+        ${tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url)}<span>${escapeHtml(tournamentFilterLabel(tournament))}</span><b>${tournament.match_count || 0}</b>
     </button>`;
     if (tournamentFiltersEl) {
         tournamentFiltersEl.innerHTML = `<button type="button" class="tournament-filter ${state.tournament ? '' : 'active'}" onclick="setTournament('')"><span>全部赛事</span><b>${allTournamentCount}</b></button>${state.tournaments.map(tournamentButton).join('')}`;
     }
     if (tournamentFilterEl) {
-        tournamentFilterEl.innerHTML = '<option value="">全部赛事</option>' + state.tournaments.map(tournament => `<option value="${tournament.id}">${escapeHtml(tournament.name)} (${tournament.match_count || 0})</option>`).join('');
+        tournamentFilterEl.innerHTML = '<option value="">全部赛事</option>' + state.tournaments.map(tournament => `<option value="${tournament.id}" title="${escapeHtml(tournament.name)}">${escapeHtml(tournamentFilterLabel(tournament))} (${tournament.match_count || 0})</option>`).join('');
         tournamentFilterEl.value = state.tournament;
     }
     const finishedDays = filters.finished_window_days || 1;
@@ -368,7 +370,7 @@ function renderMatchResults(opts = {}) {
     for (const match of state.matches) {
         let group = groupMap.get(match.tournament_id);
         if (!group) {
-            group = { id: match.tournament_id, name: match.tournament_name, game: match.game_type, logo: match.tournament_logo_url, matches: [] };
+            group = { id: match.tournament_id, name: match.tournament_name, short_name: match.tournament_short_name, game: match.game_type, logo: match.tournament_logo_url, matches: [] };
             groupMap.set(match.tournament_id, group);
             groups.push(group);
         }
@@ -376,8 +378,7 @@ function renderMatchResults(opts = {}) {
     }
     matchesEl.innerHTML = groups.map(group => `<section class="home-tournament-group">
         <header class="home-tournament-group-head">
-            <button type="button" onclick="setTournament('${group.id}')">${tournamentLogo(group.name, group.game, group.logo)}<span>${escapeHtml(group.name)}</span></button>
-            ${streakBadgeHtml(state.myStreaks?.[String(group.id)] || 0)}
+            <a class="group-link" href="/tournaments.html?tournament=${group.id}" title="进入赛事回看">${tournamentLogo(group.name, group.game, group.logo)}<span>${tournamentNameHtml(group.name, group.short_name)}</span></a>
         </header>
         <div class="home-tournament-matches">${group.matches.map(matchCard).join('')}</div>
     </section>`).join('');
@@ -385,15 +386,6 @@ function renderMatchResults(opts = {}) {
 
 async function loadLeaderboard() {}
 
-// 拉取当前用户各赛事连胜（未登录静默跳过），供赛事组徽标展示
-async function loadMine() {
-    if (!state.token) return;
-    try {
-        const data = await api('/predictions/streaks/me');
-        state.myStreaks = Object.fromEntries((data.streaks || []).map(item => [String(item.tournament_id), item.current]));
-        renderMatchResults({ animate: false });
-    } catch (error) { /* 连胜信息获取失败不影响主流程 */ }
-}
 
 // 选定要在主页展示赛程图的赛事：优先当前筛选，否则取第一个仍有未结束比赛的赛事。
 function pickHomeBracketTournament() {
@@ -587,7 +579,7 @@ async function showMatchPredictions(matchId) {
 async function loadAll() {
     renderUser();
     await loadMatches();
-    await Promise.all([loadHomeBracket(), loadLeaderboard(), loadMine()]);
+    await Promise.all([loadHomeBracket(), loadLeaderboard()]);
 }
 
 window.login = login;
@@ -603,7 +595,7 @@ window.showMatchPredictions = showMatchPredictions;
 window.closeDetailModal = closeDetailModal;
 // 分享卡数据钩子：share.js 通过它取比赛数据与用户上下文（state 为模块作用域，不挂 window）
 window.getMatchForShare = matchId => state.matches.find(match => String(match.id) === String(matchId));
-window.getShareContext = () => ({ user: state.user, streaks: state.myStreaks });
+window.getShareContext = () => ({ user: state.user });
 
 // URL ?game= 直达：优先于本地记忆，保证分享/刷新后视图一致
 const urlGame = new URLSearchParams(location.search).get('game');
