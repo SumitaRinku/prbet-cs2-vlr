@@ -392,7 +392,9 @@ function bracketWhenChip(match) {
     const date = new Date(match.match_time);
     if (Number.isNaN(date.getTime())) return '';
     const pad = value => String(value).padStart(2, '0');
-    return `<span class="bracket-chip when">${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}</span>`;
+    // 非当年日期补两位年份前缀（如 25-12-31 14:00），当年保持 MM-DD HH:mm
+    const yearPrefix = date.getFullYear() === new Date().getFullYear() ? '' : `${String(date.getFullYear() % 100).padStart(2, '0')}-`;
+    return `<span class="bracket-chip when">${yearPrefix}${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}</span>`;
 }
 
 function swissMatchNodeClean(match) {

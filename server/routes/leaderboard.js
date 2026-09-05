@@ -17,6 +17,10 @@ const LEADERBOARD_SELECT = `
     JOIN tournaments tour ON tour.id = m.tournament_id
 `;
 
+// 榜单可见范围：普通用户全部展示；管理员默认隐藏，predictions_public = 1 时自愿上榜
+const VISIBLE_USER_SQL = "(u.role = 'user' OR u.predictions_public = 1)";
+const VISIBLE_USER_NO_ALIAS_SQL = "(role = 'user' OR predictions_public = 1)";
+
 function pageParams(query) {
     const page = Math.max(1, parseInt(query.page, 10) || 1);
     const pageSize = Math.min(100, Math.max(1, parseInt(query.page_size, 10) || 20));
@@ -41,7 +45,7 @@ function escapeCsv(value) {
 router.get('/', (req, res) => {
     const { game_type } = req.query;
     const params = [];
-    let where = "u.role = 'user' AND tour.is_active = 1";
+    let where = `${VISIBLE_USER_SQL} AND tour.is_active = 1`;
     if (game_type) { where += ' AND tour.game_type = ?'; params.push(game_type); }
     const { page, pageSize } = pageParams(req.query);
     res.json(runLeaderboard(where, params, page, pageSize));
@@ -73,13 +77,13 @@ router.get('/tournament/:id', (req, res) => {
     const tournament = db.prepare('SELECT id, name, game_type FROM tournaments WHERE id = ? AND is_active = 1').get(req.params.id);
     if (!tournament) return res.status(404).json({ error: '赛事不存在' });
     const { page, pageSize } = pageParams(req.query);
-    const result = runLeaderboard("u.role = 'user' AND m.tournament_id = ?", [tournament.id], page, pageSize);
+    const result = runLeaderboard(`${VISIBLE_USER_SQL} AND m.tournament_id = ?`, [tournament.id], page, pageSize);
     res.json({ tournament, ...result });
 });
 
 router.get('/users/:id/details', (req, res) => {
     const { game_type, tournament_id } = req.query;
-    const user = db.prepare("SELECT id, username FROM users WHERE id = ? AND role = 'user'").get(req.params.id);
+    const user = db.prepare(`SELECT id, username FROM users WHERE id = ? AND ${VISIBLE_USER_NO_ALIAS_SQL}`).get(req.params.id);
     if (!user) return res.status(404).json({ error: '用户不存在' });
 
     const params = [user.id];

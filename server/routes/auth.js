@@ -27,16 +27,24 @@ router.post('/register', authLimiter, (req, res) => {
 
 router.post('/login', authLimiter, (req, res) => {
     const { username, password } = req.body;
-    const user = db.prepare('SELECT id, username, password_hash, role, total_score FROM users WHERE username = ?').get(username || '');
+    const user = db.prepare('SELECT id, username, password_hash, role, total_score, predictions_public FROM users WHERE username = ?').get(username || '');
     if (!user || !bcrypt.compareSync(password || '', user.password_hash)) return res.status(401).json({ error: '用户名或密码错误' });
 
-    const safeUser = { id: user.id, username: user.username, role: user.role, total_score: user.total_score };
+    const safeUser = { id: user.id, username: user.username, role: user.role, total_score: user.total_score, predictions_public: user.predictions_public };
     res.json({ user: safeUser, token: signToken(safeUser) });
 });
 
 router.get('/me', authenticateToken, (req, res) => {
-    const user = db.prepare('SELECT id, username, role, total_score, created_at FROM users WHERE id = ?').get(req.user.id);
+    const user = db.prepare('SELECT id, username, role, total_score, predictions_public, created_at FROM users WHERE id = ?').get(req.user.id);
     if (!user) return res.status(404).json({ error: '用户不存在' });
+    res.json({ user });
+});
+
+// 预测数据公开开关：管理员置 1 后进入排行榜（普通用户本就公开展示）
+router.put('/visibility', authenticateToken, (req, res) => {
+    const predictionsPublic = req.body.predictions_public ? 1 : 0;
+    db.prepare('UPDATE users SET predictions_public = ? WHERE id = ?').run(predictionsPublic, req.user.id);
+    const user = db.prepare('SELECT id, username, role, total_score, predictions_public FROM users WHERE id = ?').get(req.user.id);
     res.json({ user });
 });
 

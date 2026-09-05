@@ -45,7 +45,13 @@ function escapeHtml(value) {
 }
 
 function formatDateTime(value) {
-    return value ? new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-') : '';
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = n => String(n).padStart(2, '0');
+    // 非当年日期补两位年份前缀（如 25-12-31 14:00），当年保持 MM-DD HH:mm
+    const yearPrefix = date.getFullYear() === new Date().getFullYear() ? '' : `${String(date.getFullYear() % 100).padStart(2, '0')}-`;
+    return `${yearPrefix}${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function gameName(game) {
@@ -219,6 +225,12 @@ function scoreButtons(match, prediction) {
     }).join('');
 }
 
+// 管理员视角的异常比赛：开赛超过 5h 仍未结算（同步卡住/数据源缺失），允许直接标弃权
+function isStaleUnsettled(match) {
+    if (match.is_forfeit || match.status === 'finished') return false;
+    return new Date(match.match_time) <= new Date(Date.now() - 5 * 3600 * 1000);
+}
+
 function matchCard(match) {
     const prediction = match.user_prediction;
     const canPredict = state.user && match.status === 'upcoming' && match.betting_enabled && new Date(match.match_time) > new Date();
@@ -226,6 +238,7 @@ function matchCard(match) {
     const info = timeInfo(match.match_time);
     const displayStatus = match.display_status || (match.status === 'finished' ? 'finished' : new Date(match.match_time) <= new Date() ? 'ongoing' : 'upcoming');
     const isFinished = displayStatus === 'finished';
+    const isAdminStale = state.user?.role === 'admin' && isStaleUnsettled(match);
     const stateInfo = cardState(match, prediction);
     const rawStageLabel = match.name || match.stage_name || '常规赛';
     const stageLabel = rawStageLabel.replace(/:\s*[^:]+\s+vs\s+[^:]+$/i, '').trim() || match.stage_name || '常规赛';
@@ -261,7 +274,7 @@ function matchCard(match) {
                     <div><strong>${escapeHtml(match.team2_short_name || match.team2_name)}</strong><small>${escapeHtml(match.team2_name)}</small></div>
                 </a>
             </div>
-            <div class="match-footer"><span>${match.prediction_count || 0} 人预测</span>${isFinished ? `<button class="link-btn" onclick="event.stopPropagation(); showMatchPredictions(${match.id})">查看预测详情</button>` : ''}<button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button></div>
+            <div class="match-footer"><span>${match.prediction_count || 0} 人预测</span>${isFinished ? `<button class="link-btn" onclick="event.stopPropagation(); showMatchPredictions(${match.id})">查看预测详情</button>` : ''}<button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button>${isAdminStale ? `<button class="link-btn danger admin-forfeit-trigger" onclick="event.stopPropagation(); showForfeitEditor(${match.id})" title="开赛超过5小时仍未结算，可标记为弃权">标记弃权</button>` : ''}</div>
             ${prediction ? `<div class="user-prediction ${predictionClass}"><strong>我的预测</strong><span>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>${match.is_forfeit ? '<b>弃权不计分</b>' : prediction.points_earned !== null ? `<b>+${prediction.points_earned} 分</b>` : '<b>待结算</b>'}<button class="link-btn share-trigger" onclick="event.stopPropagation(); sharePrediction(${match.id})" title="生成分享图">分享</button></div>` : ''}
             ${predictionFormHtml}
         </article>`;
@@ -563,6 +576,46 @@ function closeDetailModal() {
     document.body.classList.remove('modal-open');
 }
 
+// 弹窗统一支持 Esc 关闭（预测详情 / 管理员弃权编辑器共用）
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && detailModalEl && !detailModalEl.hidden) closeDetailModal();
+});
+
+// 管理员弃权编辑器：选择获胜方后调 /admin/matches/:id/forfeit（1-0 判定，不计分）
+function showForfeitEditor(matchId) {
+    const match = state.matches.find(item => item.id === matchId);
+    if (!match || !detailModalEl || !detailModalBodyEl) return;
+    const teamButton = (side) => {
+        const name = side === 1 ? (match.team1_short_name || match.team1_name) : (match.team2_short_name || match.team2_name);
+        const logoHtml = side === 1 ? logo(match.team1_logo_url, match.team1_dark_logo_url) : logo(match.team2_logo_url, match.team2_dark_logo_url);
+        return `<button class="forfeit-option" onclick="applyForfeit(${match.id}, ${match[`team${side}_id`]})">
+            ${logoHtml}<strong>${escapeHtml(name)}</strong><small>判定获胜（1-0）</small>
+        </button>`;
+    };
+    detailModalBodyEl.innerHTML = `
+        <div class="modal-head"><h2>标记弃权</h2></div>
+        <p class="forfeit-hint">「${escapeHtml(match.team1_short_name || match.team1_name)} vs ${escapeHtml(match.team2_short_name || match.team2_name)}」开赛超过 5 小时未结算。选择获胜方后按 1-0 判定，所有预测不计分。</p>
+        <div class="forfeit-options">${teamButton(1)}${teamButton(2)}</div>
+        <p class="forfeit-error" id="forfeitError" hidden></p>
+    `;
+    detailModalEl.hidden = false;
+    document.body.classList.add('modal-open');
+}
+
+async function applyForfeit(matchId, winnerTeamId) {
+    const errorEl = document.getElementById('forfeitError');
+    try {
+        await api(`/admin/matches/${matchId}/forfeit`, { method: 'PUT', body: { winner_team_id: winnerTeamId } });
+        closeDetailModal();
+        await Promise.all([loadMatches({ animate: false }), loadHomeBracket(), loadLeaderboard()]);
+    } catch (error) {
+        if (errorEl) {
+            errorEl.textContent = error.message;
+            errorEl.hidden = false;
+        }
+    }
+}
+
 async function showMatchPredictions(matchId) {
     if (!detailModalEl || !detailModalBodyEl) return;
     try {
@@ -593,6 +646,8 @@ window.setMatchStatus = setMatchStatus;
 window.clearMatchFilters = clearMatchFilters;
 window.showMatchPredictions = showMatchPredictions;
 window.closeDetailModal = closeDetailModal;
+window.showForfeitEditor = showForfeitEditor;
+window.applyForfeit = applyForfeit;
 // 分享卡数据钩子：share.js 通过它取比赛数据与用户上下文（state 为模块作用域，不挂 window）
 window.getMatchForShare = matchId => state.matches.find(match => String(match.id) === String(matchId));
 window.getShareContext = () => ({ user: state.user });

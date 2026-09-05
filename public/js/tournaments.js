@@ -29,6 +29,7 @@ function setGame(game) {
     localStorage.setItem('gameFilter', game);
     localStorage.setItem('tournamentBrandFilter', '');
     updateTournamentUrl();
+    renderTierHint();
     loadTournaments();
 }
 
@@ -51,6 +52,18 @@ function setTier(tier) {
     state.tier = tier;
     localStorage.setItem('tournamentTierFilter', tier);
     renderArchiveList();
+}
+
+// 级别判定口径说明（与后端 tournamentTier.js 的关键词规则对齐），随所选游戏切换
+const TIER_HINTS = {
+    cs2: '<b>高级</b><i>：Major 级顶级大赛</i>　<b>普通</b><i>：BLAST / IEM / EPL 等常规国际赛事</i>　<b>低级</b><i>：预选赛（Qualifier）</i>',
+    valorant: '<b>高级</b><i>：Masters / Champions 国际大赛</i>　<b>普通</b><i>：赛区联赛（EMEA / CN / AMER / Pacific）等常规赛事</i>　<b>低级</b><i>：预选赛（Qualifier）</i>',
+    '': '<b>高级</b><i>：CS2 Major、Valorant Masters / Champions</i>　<b>普通</b><i>：其余常规赛事</i>　<b>低级</b><i>：预选赛（Qualifier）</i>'
+};
+
+function renderTierHint() {
+    const el = document.querySelector('#tierHint');
+    if (el) el.innerHTML = TIER_HINTS[state.game] || TIER_HINTS[''];
 }
 
 function filteredTournaments() {
@@ -398,6 +411,7 @@ async function loadTournaments() {
     const data = await sharedApi(`/tournaments${params.toString() ? `?${params}` : ''}`);
     state.tournaments = data.tournaments;
     renderBrandChips();
+    renderTierHint();
     renderArchiveList();
 }
 

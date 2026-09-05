@@ -111,6 +111,12 @@ function ensureDatabase() {
         db.exec("ALTER TABLE teams ADD COLUMN game_type TEXT NOT NULL DEFAULT 'cs2'");
     }
 
+    const userColumns = db.prepare('PRAGMA table_info(users)').all().map(column => column.name);
+    if (!userColumns.includes('predictions_public')) {
+        // 预测数据是否公开：排行榜默认只展示普通用户，管理员置 1 后可自愿上榜
+        db.exec('ALTER TABLE users ADD COLUMN predictions_public INTEGER NOT NULL DEFAULT 0');
+    }
+
     const tournamentColumns = db.prepare('PRAGMA table_info(tournaments)').all().map(column => column.name);
     if (!tournamentColumns.includes('is_active')) {
         db.exec('ALTER TABLE tournaments ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');

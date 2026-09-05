@@ -159,7 +159,10 @@
         }
         // 开赛时间
         const date = new Date(match.match_time);
-        const dateText = date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-');
+        const padDate = n => String(n).padStart(2, '0');
+        // 非当年日期补两位年份前缀（如 25-12-31 14:00），与站内 formatDateTime 口径一致
+        const yearPrefix = date.getFullYear() === new Date().getFullYear() ? '' : `${String(date.getFullYear() % 100).padStart(2, '0')}-`;
+        const dateText = `${yearPrefix}${padDate(date.getMonth() + 1)}-${padDate(date.getDate())} ${padDate(date.getHours())}:${padDate(date.getMinutes())}`;
         text(ctx, `${dateText} 开赛`, cx, match.name ? 228 : 206, 400, 34, C.textFaint);
         divider(ctx, 260);
     }

@@ -91,7 +91,13 @@ function tournamentNameHtml(name, shortName) {
 }
 
 function formatDateTime(value) {
-    return value ? new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-') : '';
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = n => String(n).padStart(2, '0');
+    // 非当年日期补两位年份前缀（如 25-12-31 14:00），当年保持 MM-DD HH:mm
+    const yearPrefix = date.getFullYear() === new Date().getFullYear() ? '' : `${String(date.getFullYear() % 100).padStart(2, '0')}-`;
+    return `${yearPrefix}${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function proxiedLogoUrl(url) {

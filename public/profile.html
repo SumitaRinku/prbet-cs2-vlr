@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>个人中心 - PRBET</title>
     <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
-    <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
+    <link rel="apple-touch-icon" type="image/png" href="/images/prbetlogo_square.png">
     <link rel="stylesheet" href="/css/style.css">
     <!-- 主题脚本置于 head 内同步执行：首帧渲染前写入 data-theme，避免暗色模式下页面闪白 -->
     <script src="/js/theme.js"></script>
@@ -37,43 +37,56 @@
         </section>
 
         <section id="profileContent" hidden>
-            <div class="profile-summary panel">
-                <div>
-                    <p class="eyebrow">Account</p>
-                    <h2 id="profileName">-</h2>
-                    <p id="profileRole">-</p>
-                </div>
-                <div class="profile-stats">
-                    <span><b id="statTotal">0</b>总预测</span>
-                    <span><b id="statSettled">0</b>已结算</span>
-                    <span><b id="statPoints">0</b>总积分</span>
-                    <span><b id="statRate">0%</b>得分率</span>
-                </div>
+            <!-- 概览头部：头像 + 身份 + 账号积分 + 核心统计 -->
+            <section class="profile-hero panel" id="profileHero"></section>
+
+            <!-- 标签页：预测记录 / 账号设置（状态同步到 URL hash，刷新不丢失） -->
+            <div class="profile-tabs" role="tablist" aria-label="个人中心分区">
+                <button type="button" role="tab" data-profile-tab="records" onclick="setProfileTab('records')">我的预测</button>
+                <button type="button" role="tab" data-profile-tab="settings" onclick="setProfileTab('settings')">账号设置</button>
             </div>
 
-            <section class="panel">
+            <section class="panel profile-tab-panel" id="profileTabRecords" role="tabpanel">
+                <div class="section-head">
+                    <h2>预测记录</h2>
+                    <span id="recordCount" class="profile-record-count"></span>
+                </div>
+                <div class="pf-toolbar">
+                    <div id="pfChips" class="pf-chip-list" aria-label="按状态筛选"></div>
+                    <div class="pf-select-row">
+                        <select id="pfGame" onchange="setProfileGame(this.value)" aria-label="按游戏筛选"></select>
+                        <select id="pfTournament" onchange="setProfileTournament(this.value)" aria-label="按赛事筛选"></select>
+                        <div class="pf-view-toggle" role="group" aria-label="视图切换">
+                            <button type="button" data-pf-view="compact" onclick="setProfileView('compact')">紧凑</button>
+                            <button type="button" data-pf-view="cards" onclick="setProfileView('cards')">详细</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="predictionList" class="pf-compact-list"></div>
+            </section>
+
+            <section class="panel profile-tab-panel" id="profileTabSettings" role="tabpanel" hidden>
                 <div class="section-head"><h2>修改密码</h2></div>
-                <div class="form-grid">
+                <form id="passwordForm" class="pf-form" autocomplete="off">
                     <input id="oldPassword" type="password" placeholder="原密码" autocomplete="current-password">
                     <input id="newPassword" type="password" placeholder="新密码（至少6位）" autocomplete="new-password">
                     <input id="newPasswordConfirm" type="password" placeholder="确认新密码" autocomplete="new-password">
-                    <button onclick="changePassword()">保存新密码</button>
-                </div>
-            </section>
+                    <button type="submit">保存新密码</button>
+                </form>
+                <p id="pfFeedback" class="pf-feedback" hidden></p>
 
-            <section class="panel profile-records">
-                <div class="section-head">
-                    <h2>我的预测记录</h2>
-                    <select id="profileStatus" onchange="resetAndRenderPredictions()">
-                        <option value="">全部记录</option>
-                        <option value="finished">已结算</option>
-                        <option value="pending">未结算</option>
-                        <option value="scored">已得分</option>
-                        <option value="missed">未得分</option>
-                        <option value="forfeit">弃权</option>
-                    </select>
+                <!-- 管理员专属：排行榜默认隐藏管理员数据，可自愿公开 -->
+                <div id="visibilitySection" class="pf-visibility" hidden>
+                    <div class="section-head"><h2>数据公开</h2></div>
+                    <label class="pf-switch-row">
+                        <input type="checkbox" id="visibilityToggle" onchange="togglePredictionsPublic(this.checked)">
+                        <span class="pf-switch-text">
+                            <strong>在排行榜公开我的预测数据</strong>
+                            <small>关闭时排行榜不展示你的成绩；开启后与普通用户一同参与排名（含赛事榜和 CSV 导出）。</small>
+                        </span>
+                    </label>
+                    <p id="visibilityFeedback" class="pf-feedback" hidden></p>
                 </div>
-                <div id="predictionList" class="prediction-list"></div>
             </section>
         </section>
     </main>
