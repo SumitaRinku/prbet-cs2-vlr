@@ -45,6 +45,7 @@ app.use('/api/images', require('./routes/images'));
 app.use('/api/qrcode', require('./routes/qrcode'));
 app.use('/api/teams', require('./routes/teams'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/bot', require('./routes/bot').createBotRouter(require('./config/database')));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 

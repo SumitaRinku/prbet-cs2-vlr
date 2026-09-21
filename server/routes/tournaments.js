@@ -40,11 +40,12 @@ function brandOf(name, gameType) {
 
 function matchRows(tournamentId) {
     return db.prepare(`
-        SELECT m.*, t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url, t1.dark_logo_url team1_dark_logo_url,
+        SELECT m.*, tour.game_type, t1.name team1_name, t1.short_name team1_short_name, t1.logo_url team1_logo_url, t1.dark_logo_url team1_dark_logo_url,
             t2.name team2_name, t2.short_name team2_short_name, t2.logo_url team2_logo_url, t2.dark_logo_url team2_dark_logo_url,
             (SELECT COUNT(*) FROM predictions p WHERE p.match_id = m.id) prediction_count,
             (SELECT COUNT(*) FROM predictions p WHERE p.match_id = m.id AND p.points_earned > 0) correct_prediction_count
         FROM matches m
+        JOIN tournaments tour ON tour.id = m.tournament_id
         JOIN teams t1 ON t1.id = m.team1_id
         JOIN teams t2 ON t2.id = m.team2_id
         WHERE m.tournament_id = ?

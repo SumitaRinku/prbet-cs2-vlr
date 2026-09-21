@@ -9,6 +9,7 @@ const { TIER_SQL } = require('../services/tournamentTier');
 const { isValidScore } = require('../utils/scoring');
 const { settleMatch, recalculateUserScores } = require('../utils/settlement');
 const { sniffImageType } = require('./images');
+const { validateMatchInput, validateMatchReferences } = require('../utils/matchValidation');
 
 const router = express.Router();
 router.use(authenticateToken, requireAdmin);
@@ -22,11 +23,16 @@ function applyTournamentActiveState(tournamentId, isActive) {
     if (isActive) {
         db.prepare("UPDATE matches SET betting_enabled = 1 WHERE tournament_id = ? AND status = 'upcoming' AND datetime(match_time) > datetime('now')")
             .run(tournamentId);
-        return;
+        // 停用期间新增的定局可能尚未结算，启用前补结算一次（幂等）
+        for (const row of db.prepare("SELECT id FROM matches WHERE tournament_id = ? AND status = 'finished'").all(tournamentId)) {
+            settleMatch(row.id);
+        }
+    } else {
+        db.prepare("UPDATE matches SET betting_enabled = 0 WHERE tournament_id = ? AND status != 'finished'")
+            .run(tournamentId);
     }
-
-    db.prepare("UPDATE matches SET betting_enabled = 0 WHERE tournament_id = ? AND status != 'finished'")
-        .run(tournamentId);
+    // 总分口径只含活跃赛事：启用/停用都会改变计入范围，必须重建总分
+    recalculateUserScores();
 }
 
 router.get('/stats', (req, res) => {
@@ -270,14 +276,18 @@ router.get('/matches', (req, res) => {
 
 router.post('/matches', (req, res) => {
     const { tournament_id, team1_id, team2_id, name, format = 'BO3', match_time, betting_enabled = 1 } = req.body;
-    if (!tournament_id || !team1_id || !team2_id || !match_time) return res.status(400).json({ error: '缺少必填字段' });
-    if (Number(team1_id) === Number(team2_id)) return res.status(400).json({ error: '两支队伍不能相同' });
-    if (!['BO1', 'BO3', 'BO5'].includes(format)) return res.status(400).json({ error: '赛制无效' });
-    const result = db.prepare(`
-        INSERT INTO matches (tournament_id, team1_id, team2_id, name, format, match_time, betting_enabled, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'upcoming')
-    `).run(tournament_id, team1_id, team2_id, name || null, format, match_time, betting_enabled ? 1 : 0);
-    res.status(201).json({ id: result.lastInsertRowid });
+    const inputError = validateMatchInput({ tournament_id, team1_id, team2_id, format, match_time }, { requireTime: true });
+    if (inputError) return res.status(400).json({ error: inputError });
+    const referenceError = validateMatchReferences(db, { tournament_id, team1_id, team2_id });
+    if (referenceError) return res.status(400).json({ error: referenceError });
+    try {
+        const result = db.prepare(`INSERT INTO matches (tournament_id, team1_id, team2_id, name, format, match_time, betting_enabled, status, time_confirmed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'upcoming', 1)`).run(tournament_id, team1_id, team2_id, name || null, format, new Date(match_time).toISOString(), betting_enabled ? 1 : 0);
+        res.status(201).json({ id: result.lastInsertRowid });
+    } catch (error) {
+        console.error('[admin] create match failed', error);
+        res.status(400).json({ error: '??????????????????' });
+    }
 });
 
 router.put('/matches/:id', (req, res) => {
@@ -287,6 +297,24 @@ router.put('/matches/:id', (req, res) => {
     const existing = db.prepare('SELECT * FROM matches WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ error: '比赛不存在' });
 
+    const inputError = validateMatchInput({ tournament_id: tournament_id || existing.tournament_id, team1_id: team1_id || existing.team1_id, team2_id: team2_id || existing.team2_id, format, status, match_time });
+    if (inputError && inputError !== '??????') return res.status(400).json({ error: inputError });
+    const referenceError = validateMatchReferences(db, {
+        tournament_id: tournament_id === undefined ? existing.tournament_id : tournament_id,
+        team1_id: team1_id === undefined ? existing.team1_id : team1_id,
+        team2_id: team2_id === undefined ? existing.team2_id : team2_id
+    });
+    if (referenceError) return res.status(400).json({ error: referenceError });
+
+    // 已结算比赛的比赛要素不允许修改：积分按当时的赛制与队伍位置计算，
+    // 改动会导致积分口径与预测语义错位；更正赛果请使用 /result 接口。
+    if (existing.status === 'finished') {
+        if (format && format !== existing.format) return res.status(400).json({ error: '比赛已结算，不能修改赛制' });
+        if ((team1_id && Number(team1_id) !== existing.team1_id) || (team2_id && Number(team2_id) !== existing.team2_id)) {
+            return res.status(400).json({ error: '比赛已结算，不能修改对阵队伍' });
+        }
+    }
+
     // 结束比赛必须有完整赛果；使用专用的 /result 接口录入比分后才允许结算。
     const nextStatus = status || existing.status;
     if (nextStatus === 'finished' && (existing.team1_score === null || existing.team2_score === null || existing.winner_team_id === null)) {
@@ -294,12 +322,19 @@ router.put('/matches/:id', (req, res) => {
     }
 
     const update = db.transaction(() => {
+        // 管理员对调主客队时，预测比分按位置存储，需同步对调才能保持语义
+        const nextTeam1 = team1_id ? Number(team1_id) : existing.team1_id;
+        const nextTeam2 = team2_id ? Number(team2_id) : existing.team2_id;
+        if (nextTeam1 !== nextTeam2 && nextTeam1 === existing.team2_id && nextTeam2 === existing.team1_id) {
+            db.prepare('UPDATE predictions SET predicted_team1_score = predicted_team2_score, predicted_team2_score = predicted_team1_score WHERE match_id = ?')
+                .run(existing.id);
+        }
         const result = db.prepare(`
             UPDATE matches SET tournament_id = COALESCE(?, tournament_id), team1_id = COALESCE(?, team1_id), team2_id = COALESCE(?, team2_id),
                 name = COALESCE(?, name), format = COALESCE(?, format), match_time = COALESCE(?, match_time), status = COALESCE(?, status),
-                betting_enabled = COALESCE(?, betting_enabled)
+                betting_enabled = COALESCE(?, betting_enabled), time_confirmed = CASE WHEN ? IS NOT NULL THEN 1 ELSE time_confirmed END
             WHERE id = ?
-        `).run(tournament_id || null, team1_id || null, team2_id || null, name || null, format || null, match_time || null, status || null, betting_enabled === undefined ? null : (betting_enabled ? 1 : 0), existing.id);
+        `).run(tournament_id || null, team1_id || null, team2_id || null, name || null, format || null, match_time ? new Date(match_time).toISOString() : null, status || null, betting_enabled === undefined ? null : (betting_enabled ? 1 : 0), match_time || null, existing.id);
 
         // 仅在状态跳变为已结束时结算；已结束比赛的重复保存不再触发结算。
         // 赛果修正走 /result 接口，那里始终重新结算。
@@ -321,8 +356,10 @@ router.put('/matches/:id/result', (req, res) => {
     if (!isValidScore(team1Score, team2Score, match.format)) return res.status(400).json({ error: '比分不符合赛制' });
     const winnerId = team1Score > team2Score ? match.team1_id : match.team2_id;
     const apply = db.transaction(() => {
+        // 录入真实赛果：解除弃权标记（弃权局补录真实比分后应正常计分），
+        // 并锁定赛果，PandaScore 同步不再覆盖；锁定后 settleMatch 以此为准重算。
         db.prepare(`
-            UPDATE matches SET team1_score = ?, team2_score = ?, winner_team_id = ?, status = 'finished', betting_enabled = 0 WHERE id = ?
+            UPDATE matches SET team1_score = ?, team2_score = ?, winner_team_id = ?, status = 'finished', is_forfeit = 0, result_locked = 1, betting_enabled = 0 WHERE id = ?
         `).run(team1Score, team2Score, winnerId, match.id);
         const processed = settleMatch(match.id);
         recalculateUserScores();
@@ -340,9 +377,10 @@ router.put('/matches/:id/forfeit', (req, res) => {
     const team1Score = winnerId === match.team1_id ? 1 : 0;
     const team2Score = winnerId === match.team2_id ? 1 : 0;
     const apply = db.transaction(() => {
-        // 弃权局：按 1-0 记录、标记弃权、置为已结束。calculatePoints 对 is_forfeit 返回 0，故不计分。
+        // 弃权局：按 1-0 记录、标记弃权、置为已结束并锁定赛果（同步不回滚）。
+        // calculatePoints 对 is_forfeit 返回 0，故不计分。
         db.prepare(`
-            UPDATE matches SET is_forfeit = 1, status = 'finished', team1_score = ?, team2_score = ?, winner_team_id = ?, betting_enabled = 0 WHERE id = ?
+            UPDATE matches SET is_forfeit = 1, status = 'finished', team1_score = ?, team2_score = ?, winner_team_id = ?, result_locked = 1, betting_enabled = 0 WHERE id = ?
         `).run(team1Score, team2Score, winnerId, match.id);
         const processed = settleMatch(match.id);
         recalculateUserScores();

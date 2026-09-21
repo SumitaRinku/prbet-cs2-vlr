@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../config/database');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { isValidScore, possibleScores } = require('../utils/scoring');
+const { recordPredictionHistory } = require('../utils/predictionHistory');
 
 const router = express.Router();
 const HOME_FINISHED_DAYS = 1;
@@ -17,6 +18,35 @@ const NOT_TBD = "t1.name <> 'TBD' AND t2.name <> 'TBD'";
 
 function isTbdMatch(match) {
     return db.prepare("SELECT 1 FROM teams WHERE id IN (?, ?) AND name = 'TBD' LIMIT 1").get(match.team1_id, match.team2_id);
+}
+
+// 赛前社区共识：按场次聚合预测胜者分布。只暴露聚合结果（百分比 + 人数），
+// 个人预测明细仍然赛后才可见，不存在赛前抄作业。
+function attachConsensus(matches) {
+    const ids = matches.filter(match => match.status !== 'finished').map(match => match.id);
+    if (!ids.length) return;
+    const rows = db.prepare(`
+        SELECT match_id, predicted_winner_id, COUNT(*) count
+        FROM predictions
+        WHERE match_id IN (${ids.map(() => '?').join(',')})
+        GROUP BY match_id, predicted_winner_id
+    `).all(...ids);
+    const byMatch = new Map();
+    for (const row of rows) {
+        const entry = byMatch.get(row.match_id) || { total: 0 };
+        entry.total += row.count;
+        entry[row.predicted_winner_id] = row.count;
+        byMatch.set(row.match_id, entry);
+    }
+    for (const match of matches) {
+        if (match.status === 'finished') continue;
+        const entry = byMatch.get(match.id);
+        const team1 = entry ? (entry[match.team1_id] || 0) : 0;
+        const team2 = entry ? (entry[match.team2_id] || 0) : 0;
+        const total = entry ? entry.total : 0;
+        const team1Pct = total ? Math.round((team1 * 100) / total) : 0;
+        match.consensus = { total, team1, team2, team1_pct: team1Pct, team2_pct: total ? 100 - team1Pct : 0 };
+    }
 }
 
 function matchSelect(where = '1=1') {
@@ -51,6 +81,7 @@ router.get('/', optionalAuth, (req, res) => {
     }
 
     const matches = db.prepare(`${matchSelect(where)} ORDER BY m.match_time ASC LIMIT 200`).all(...params);
+    attachConsensus(matches);
     if (req.user) {
         const predictions = db.prepare('SELECT * FROM predictions WHERE user_id = ?').all(req.user.id);
         const map = new Map(predictions.map(prediction => [prediction.match_id, prediction]));
@@ -124,6 +155,7 @@ router.get('/upcoming', optionalAuth, (req, res) => {
             ? 'finished'
             : (match.status === 'ongoing' || new Date(match.match_time) <= new Date() ? 'ongoing' : 'upcoming');
     }
+    attachConsensus(matches);
     if (req.user) {
         const predictions = db.prepare('SELECT * FROM predictions WHERE user_id = ?').all(req.user.id);
         const map = new Map(predictions.map(prediction => [prediction.match_id, prediction]));
@@ -182,15 +214,17 @@ router.post('/:id/predictions', authenticateToken, (req, res) => {
     const scoreWinner = s1 > s2 ? match.team1_id : match.team2_id;
     if (winnerId !== scoreWinner) return res.status(400).json({ error: '获胜队伍与比分不一致' });
 
-    const existing = db.prepare('SELECT id FROM predictions WHERE user_id = ? AND match_id = ?').get(req.user.id, match.id);
+    const existing = db.prepare('SELECT * FROM predictions WHERE user_id = ? AND match_id = ?').get(req.user.id, match.id);
     if (existing) {
         db.prepare('UPDATE predictions SET predicted_winner_id = ?, predicted_team1_score = ?, predicted_team2_score = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
             .run(winnerId, s1, s2, existing.id);
-        return res.json({ message: '预测已更新' });
+        recordPredictionHistory(db, { ...existing, predicted_winner_id: winnerId, predicted_team1_score: s1, predicted_team2_score: s2 }, 'updated');
+        return res.json({ message: '?????' });
     }
 
-    db.prepare('INSERT INTO predictions (user_id, match_id, predicted_winner_id, predicted_team1_score, predicted_team2_score) VALUES (?, ?, ?, ?, ?)')
+    const result = db.prepare('INSERT INTO predictions (user_id, match_id, predicted_winner_id, predicted_team1_score, predicted_team2_score) VALUES (?, ?, ?, ?, ?)')
         .run(req.user.id, match.id, winnerId, s1, s2);
+    recordPredictionHistory(db, { id: result.lastInsertRowid, user_id: req.user.id, match_id: match.id, predicted_winner_id: winnerId, predicted_team1_score: s1, predicted_team2_score: s2 }, 'created');
     res.status(201).json({ message: '预测已提交' });
 });
 
@@ -200,7 +234,9 @@ router.delete('/:id/predictions', authenticateToken, (req, res) => {
     if (!match) return res.status(404).json({ error: '比赛不存在' });
     if (match.status !== 'upcoming') return res.status(400).json({ error: '比赛已开始或已结束，无法取消预测' });
     if (new Date(match.match_time) <= new Date()) return res.status(400).json({ error: '比赛已开始，无法取消预测' });
+    const prediction = db.prepare('SELECT * FROM predictions WHERE user_id = ? AND match_id = ?').get(req.user.id, match.id);
     const result = db.prepare('DELETE FROM predictions WHERE user_id = ? AND match_id = ?').run(req.user.id, match.id);
+    if (prediction) recordPredictionHistory(db, prediction, 'deleted');
     if (result.changes === 0) return res.status(404).json({ error: '你尚未对该比赛做出预测' });
     res.json({ message: '预测已取消' });
 });

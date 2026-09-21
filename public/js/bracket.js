@@ -397,12 +397,25 @@ function bracketWhenChip(match) {
     return `<span class="bracket-chip when">${yearPrefix}${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}</span>`;
 }
 
+// LIVE 卡片单击跳转的直播间地址（按比赛所属赛事的游戏类型区分）。
+const LIVE_STREAM_URLS = {
+    cs2: 'https://live.bilibili.com/1883358196',
+    valorant: 'https://live.bilibili.com/24160384'
+};
+
+// 赛程图卡片点击行为：LIVE 卡片直接新标签页打开对应游戏直播间；
+// 其余（未开赛/已结束/未知游戏）保持原有定位逻辑 focusTournamentMatch。
+function bracketCardAction(match) {
+    const url = isLiveMatch(match) ? LIVE_STREAM_URLS[String(match.game_type || '').toLowerCase()] || '' : '';
+    return url ? `window.open('${url}','_blank','noopener')` : `focusTournamentMatch(${match.id})`;
+}
+
 function swissMatchNodeClean(match) {
     // 只有前端合成的骨架槽位不可点击；真实 TBD 对局仍可定位到赛事详情。
     const clickable = !match.__placeholder;
     const live = isLiveMatch(match);
     const attrs = clickable
-        ? `onclick="focusTournamentMatch(${match.id})"`
+        ? `onclick="${bracketCardAction(match)}"`
         : 'disabled aria-disabled="true"';
     const classes = ['sw2-match', clickable ? '' : 'tbd', live ? 'live' : ''].filter(Boolean).join(' ');
     const badge = live ? '<span class="bracket-chip live">LIVE</span>' : '';
@@ -637,9 +650,10 @@ function playoffCardClean(match) {
     const title = match.name || '淘汰赛';
     const tbd = isTbdMatch(match);
     const live = !match.__placeholder && !tbd && isLiveMatch(match);
+    const action = match.__placeholder ? '' : bracketCardAction(match);
     const interaction = match.__placeholder
         ? ''
-        : `role="button" tabindex="0" onclick="focusTournamentMatch(${match.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();focusTournamentMatch(${match.id});}"`;
+        : `role="button" tabindex="0" onclick="${action}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${action}}"`;
     return `<div class="pb2-card ${match.status || ''} ${tbd ? 'tbd' : ''} ${live ? 'live' : ''}" ${interaction} title="${escapeHtml(title)}">
         ${playoffTeamRowClean(match, 1)}
         ${playoffTeamRowClean(match, 2)}
@@ -701,9 +715,10 @@ function compactBracketCard(match, prefix = 'de', flow = null) {
     const title = match.name || 'Bracket match';
     const tbd = isTbdMatch(match);
     const live = !match.__placeholder && !tbd && isLiveMatch(match);
+    const action = match.__placeholder ? '' : bracketCardAction(match);
     const interaction = match.__placeholder
         ? ''
-        : `role="button" tabindex="0" onclick="focusTournamentMatch(${match.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();focusTournamentMatch(${match.id});}"`;
+        : `role="button" tabindex="0" onclick="${action}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${action}}"`;
     return `<div class="${prefix}-card ${match.status || ''} ${tbd ? 'tbd' : ''} ${live ? 'live' : ''}" ${interaction} title="${escapeHtml(title)}">
         ${bracketTeamRowClean(match, 1, prefix, flow)}
         ${bracketTeamRowClean(match, 2, prefix, flow)}

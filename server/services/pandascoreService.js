@@ -16,6 +16,46 @@ const GAMES = {
 let timer = null;
 let running = false;
 
+// ===== 同步异常告警 =====
+// 自动同步（startup/scheduled）连续异常时推送到 webhook，避免静默断同步导致
+// 比赛与赛果长期不更新。异常 = 整轮拉取失败，或任一游戏部分失败；连续 2 轮
+// 触发首次告警，之后每 10 轮提醒一次；恢复正常后发送一次恢复通知。
+// 手动同步（manual/cli）不算异常轮次——管理员就在现场，无需推送。
+// 配置：ALERT_WEBHOOK_URL。支持 Server酱（URL 含 sctapi.ftqq.com，form 表单）、
+// Bark（POST JSON {title, body}）与通用 JSON webhook（POST {title, message, body}）。
+let degradedRounds = 0;
+
+function alertWebhookUrl() {
+    return (process.env.ALERT_WEBHOOK_URL || '').trim();
+}
+
+async function sendAlertNotification(title, message) {
+    const url = alertWebhookUrl();
+    if (!url) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+    try {
+        const headers = { 'Content-Type': 'application/json' };
+        let body = JSON.stringify({ title, message, body: message });
+        if (url.includes('sctapi.ftqq.com')) {
+            headers['Content-Type'] = 'application/x-www-form-urlencoded';
+            body = new URLSearchParams({ title, desp: message }).toString();
+        }
+        await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
+    } catch (error) {
+        console.error('[PandaScore] 告警推送失败:', error.message);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function noteDegradedRound(message) {
+    degradedRounds++;
+    if (degradedRounds === 2 || (degradedRounds > 2 && (degradedRounds - 2) % 10 === 0)) {
+        await sendAlertNotification('PandaScore 同步异常', `已连续 ${degradedRounds} 轮同步异常：${message}`);
+    }
+}
+
 function token() {
     return process.env.PANDASCORE_API_TOKEN || process.env.PANDASCORE_TOKEN || '';
 }
@@ -171,15 +211,27 @@ async function fetchJson(pathname, params) {
     };
 
     // 失败重试一次：PandaScore 偶发 400/500（瞬时故障），重试可吸收大部分抖动
-    let response = await doFetch();
-    if (!response.ok && RETRY_DELAY_MS > 0) {
-        await delay(RETRY_DELAY_MS);
-        response = await doFetch();
+    // ????????? 429/5xx ???????4xx ?????????
+    let response;
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+            response = await doFetch();
+            if (response.ok) break;
+            if (![408, 425, 429, 500, 502, 503, 504].includes(response.status)) break;
+            const retryAfter = Number(response.headers.get('retry-after'));
+            const waitMs = Number.isFinite(retryAfter) ? Math.min(retryAfter * 1000, 30000) : RETRY_DELAY_MS * (2 ** attempt);
+            await delay(waitMs);
+        } catch (error) {
+            lastError = error;
+            if (attempt === 2) throw error;
+            await delay(RETRY_DELAY_MS * (2 ** attempt));
+        }
     }
-
-    if (!response.ok) {
-        const body = await response.text();
-        throw new Error(`PandaScore 请求失败 ${response.status}: ${body.slice(0, 400)}`);
+    if (lastError && !response) throw lastError;
+    if (!response || !response.ok) {
+        const body = response ? await response.text() : '';
+        throw new Error('PandaScore ???? ' + (response ? response.status : '') + ': ' + body.slice(0, 400));
     }
 
     return response.json();
@@ -187,7 +239,8 @@ async function fetchJson(pathname, params) {
 
 async function fetchMatches(gameType) {
     const game = GAMES[gameType];
-    const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    // Yesterday's 06:00-to-06:00 report may include matches older than 24 hours.
+    const start = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
     const end = new Date(Date.now() + lookaheadDays() * 24 * 60 * 60 * 1000).toISOString();
     const rows = [];
 
@@ -202,9 +255,11 @@ async function fetchMatches(gameType) {
             sort: 'begin_at'
         });
         console.log(`[PandaScore] 第 ${page} 页返回 ${Array.isArray(data) ? data.length : 0} 条`);
-        if (!Array.isArray(data) || data.length === 0) break;
+        if (!Array.isArray(data)) throw new Error('PandaScore 返回了非数组赛程');
+        if (data.length === 0) break;
         rows.push(...data.map(row => ({ ...row, __gameType: gameType })));
         if (data.length < PER_PAGE) break;
+        if (page === MAX_PAGES) throw new Error('PandaScore 赛程超过分页上限，不能视为完整同步');
     }
 
     return rows;
@@ -331,7 +386,8 @@ function upsertMatch(match, now) {
     const team1Score = isForfeit ? (winnerId === team1Id ? 1 : 0) : (syncResults ? scoreFor(match, team1.external_id) : null);
     const team2Score = isForfeit ? (winnerId === team2Id ? 1 : 0) : (syncResults ? scoreFor(match, team2.external_id) : null);
     const stage = stageFromMatch(match);
-    const matchTime = iso(match.scheduled_at || match.begin_at) || now;
+    const sourceTime = iso(match.scheduled_at) || iso(match.begin_at);
+    const matchTime = sourceTime || now;
     const externalId = `${gameType}:${match.id}`;
     const existingRef = findOrUpgradeExternalId('matches', externalId, gameType, now);
     const existing = existingRef ? db.prepare('SELECT * FROM matches WHERE id = ?').get(existingRef.id) : null;
@@ -339,11 +395,27 @@ function upsertMatch(match, now) {
     const canBet = tournamentActive && !hasTbd;
 
     if (existing) {
+        // 管理员经 /result、/forfeit 锁定的赛果是最终结果：同步只补齐 stage 元数据，
+        // 不覆盖比分/胜者/状态/弃权标记（否则同步窗口内的人工修正会被数据源回滚）。
+        // 积分在录入赛果时已结算，锁定后无需重算。
+        if (existing.result_locked) {
+            db.prepare('UPDATE matches SET stage_name = ?, stage_slug = ?, stage_external_id = ?, last_synced_at = ?, time_confirmed = CASE WHEN ? = match_time THEN 1 ELSE time_confirmed END WHERE id = ?')
+                .run(stage.name, stage.slug, stage.external_id, now, sourceTime, existing.id);
+            return { id: existing.id, finished: false, settle: false };
+        }
         const wasFinished = existing.status === 'finished';
         // 判断该比赛「此前是否为 TBD 占位」：只因对阵未定而被强制关闭下注的比赛，
         // 一旦对阵确定应自动重新开放，而不是沿用那个被迫的 0。
         const wasTbd = !!db.prepare("SELECT 1 FROM teams WHERE id IN (?, ?) AND name = 'TBD' LIMIT 1")
             .get(existing.team1_id, existing.team2_id);
+        // PandaScore 翻转主客队顺序时，预测比分按位置存储，必须同步对调存量预测，
+        // 否则精确比分加分与展示都会错位（胜者按 ID 比较，不受影响）。
+        if (!hasTbd && Number(team1Id) !== Number(team2Id)
+            && Number(existing.team1_id) === Number(team2Id)
+            && Number(existing.team2_id) === Number(team1Id)) {
+            db.prepare('UPDATE predictions SET predicted_team1_score = predicted_team2_score, predicted_team2_score = predicted_team1_score WHERE match_id = ?')
+                .run(existing.id);
+        }
         let bettingEnabled;
         if (!canBet || effectiveStatus !== 'upcoming') {
             bettingEnabled = 0; // TBD、赛事非活跃或已开赛/结束：一律关闭
@@ -356,9 +428,9 @@ function upsertMatch(match, now) {
             UPDATE matches SET tournament_id = ?, team1_id = ?, team2_id = ?, name = ?, format = ?, match_time = ?, status = ?, is_forfeit = ?, raw_status = ?,
                 stage_name = ?, stage_slug = ?, stage_external_id = ?,
                 team1_score = COALESCE(?, team1_score), team2_score = COALESCE(?, team2_score), winner_team_id = COALESCE(?, winner_team_id),
-                betting_enabled = ?, last_synced_at = ?
+                betting_enabled = ?, last_synced_at = ?, time_confirmed = ?
             WHERE id = ?
-        `).run(tournamentId, team1Id, team2Id, match.name || null, format, matchTime, effectiveStatus, isForfeit ? 1 : 0, match.status || null, stage.name, stage.slug, stage.external_id, team1Score, team2Score, winnerId, bettingEnabled, now, existing.id);
+        `).run(tournamentId, team1Id, team2Id, match.name || null, format, matchTime, effectiveStatus, isForfeit ? 1 : 0, match.status || null, stage.name, stage.slug, stage.external_id, team1Score, team2Score, winnerId, bettingEnabled, now, sourceTime ? 1 : 0, existing.id);
         return { id: existing.id, finished: !wasFinished && effectiveStatus === 'finished', settle: effectiveStatus === 'finished' };
     }
 
@@ -366,6 +438,7 @@ function upsertMatch(match, now) {
         INSERT INTO matches (tournament_id, team1_id, team2_id, name, format, match_time, status, is_forfeit, raw_status, stage_name, stage_slug, stage_external_id, team1_score, team2_score, winner_team_id, betting_enabled, external_source, external_id, last_synced_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(tournamentId, team1Id, team2Id, match.name || null, format, matchTime, effectiveStatus, isForfeit ? 1 : 0, match.status || null, stage.name, stage.slug, stage.external_id, team1Score, team2Score, winnerId, canBet && effectiveStatus === 'upcoming' ? 1 : 0, SOURCE, externalId, now);
+    db.prepare('UPDATE matches SET time_confirmed = ? WHERE id = ?').run(sourceTime ? 1 : 0, inserted.lastInsertRowid);
     return { id: inserted.lastInsertRowid, finished: effectiveStatus === 'finished', settle: effectiveStatus === 'finished' };
 }
 
@@ -391,6 +464,15 @@ async function syncPandascoreMatches(mode = 'manual') {
             throw new Error(`全部游戏拉取失败：${failures.join('；')}`);
         }
         if (failures.length) console.error(`[PandaScore] 部分游戏拉取失败：${failures.join('；')}`);
+        // 异常轮次计数与告警：干净成功清零（必要时先发恢复通知），部分失败计入连续异常
+        if (failures.length === 0) {
+            if (mode !== 'manual' && degradedRounds >= 2) {
+                await sendAlertNotification('PandaScore 同步恢复', `此前连续 ${degradedRounds} 轮同步异常，现已恢复正常。`);
+            }
+            degradedRounds = 0;
+        } else if (mode !== 'manual') {
+            await noteDegradedRound(failures.join('；'));
+        }
         console.log(`[PandaScore] API 拉取完成，共 ${rows.length} 场，开始写入数据库`);
         const now = new Date().toISOString();
         let matchesUpserted = 0;
@@ -414,6 +496,12 @@ async function syncPandascoreMatches(mode = 'manual') {
             pruneExpiredInactiveTournaments(now);
             // 全部预测算完后统一重建总分，作为唯一权威来源，避免增量漂移
             if (scoresChanged) recalculateUserScores();
+            // Mark only games whose entire fetch and transaction succeeded.
+            const markSynced = db.prepare(`INSERT INTO bot_sync_state (game_type, last_success_at)
+                VALUES (?, ?) ON CONFLICT(game_type) DO UPDATE SET last_success_at = excluded.last_success_at`);
+            settled.forEach((outcome, index) => {
+                if (outcome.status === 'fulfilled') markSynced.run(gameKeys[index], now);
+            });
         });
         tx();
 
@@ -428,6 +516,7 @@ async function syncPandascoreMatches(mode = 'manual') {
         return { status: failures.length ? 'partial' : 'success', message, tournaments_upserted: tournaments, teams_upserted: teams, matches_upserted: matchesUpserted, matches_finished: matchesFinished };
     } catch (error) {
         db.prepare(`UPDATE sync_runs SET status = 'failed', message = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`).run(error.message, run.lastInsertRowid);
+        if (mode !== 'manual') await noteDegradedRound(error.message);
         throw error;
     } finally {
         running = false;

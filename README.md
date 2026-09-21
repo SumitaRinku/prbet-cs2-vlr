@@ -1,5 +1,7 @@
 # PRBET · CS2 / Valorant 比赛竞猜
 
+QQ 群每日赛程、昨日赛果与临赛提醒：[NapCat 配置与运行教程](bot/README.md)（Linux 网站 + Windows NapCat）。
+
 > 基于 Express + SQLite 的电竞赛事预测网站，通过 [PandaScore](https://pandascore.co) REST API 同步 CS2 与 Valorant 赛程及赛果，支持赛前比分预测、积分结算与排行榜。
 
 **实际效果**：<https://prbet.gekichumai.cn>

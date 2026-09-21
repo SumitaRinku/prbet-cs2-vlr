@@ -4,6 +4,7 @@ node_modules/
 # 数据库与运行时数据（含 JWT 持久化密钥）
 data/*.sqlite*
 data/*.backup*
+data/backups/
 data/.jwt_secret
 
 # 队标/赛事 logo 代理磁盘缓存（可随时删除重建）
@@ -13,6 +14,10 @@ data/logo-cache/
 .env
 .env.local
 .env.*.local
+bot/config.json
+bot/data/
+dist/napcat-bot-windows.zip
+dist/napcat-bot-format-update.zip
 
 # 临时 / 调试脚本
 tmp_*.js

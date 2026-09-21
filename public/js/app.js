@@ -231,6 +231,21 @@ function isStaleUnsettled(match) {
     return new Date(match.match_time) <= new Date(Date.now() - 5 * 3600 * 1000);
 }
 
+// 赛前社区共识：仅展示聚合分布（≥3 人显示比例条，更少只显示人数）。
+// 个人预测明细赛后才可见，赛前不存在抄作业。
+function consensusHtml(match) {
+    const c = match.consensus;
+    if (!c || !c.total || match.display_status === 'finished' || match.status === 'finished') return '';
+    if (c.total < 3) return `<div class="consensus consensus-thin"><span>${c.total} 人已预测</span></div>`;
+    const t1 = escapeHtml(match.team1_short_name || match.team1_name);
+    const t2 = escapeHtml(match.team2_short_name || match.team2_name);
+    return `<div class="consensus" title="赛前社区预测分布（${c.total} 人）">
+        <span class="consensus-side">${t1} <b>${c.team1_pct}%</b></span>
+        <div class="consensus-bar"><i style="width:${c.team1_pct}%"></i></div>
+        <span class="consensus-side"><b>${c.team2_pct}%</b> ${t2}</span>
+    </div>`;
+}
+
 function matchCard(match) {
     const prediction = match.user_prediction;
     const canPredict = state.user && match.status === 'upcoming' && match.betting_enabled && new Date(match.match_time) > new Date();
@@ -274,6 +289,7 @@ function matchCard(match) {
                     <div><strong>${escapeHtml(match.team2_short_name || match.team2_name)}</strong><small>${escapeHtml(match.team2_name)}</small></div>
                 </a>
             </div>
+            ${consensusHtml(match)}
             <div class="match-footer"><span>${match.prediction_count || 0} 人预测</span>${isFinished ? `<button class="link-btn" onclick="event.stopPropagation(); showMatchPredictions(${match.id})">查看预测详情</button>` : ''}<button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button>${isAdminStale ? `<button class="link-btn danger admin-forfeit-trigger" onclick="event.stopPropagation(); showForfeitEditor(${match.id})" title="开赛超过5小时仍未结算，可标记为弃权">标记弃权</button>` : ''}</div>
             ${prediction ? `<div class="user-prediction ${predictionClass}"><strong>我的预测</strong><span>${prediction.predicted_team1_score} : ${prediction.predicted_team2_score}</span>${match.is_forfeit ? '<b>弃权不计分</b>' : prediction.points_earned !== null ? `<b>+${prediction.points_earned} 分</b>` : '<b>待结算</b>'}<button class="link-btn share-trigger" onclick="event.stopPropagation(); sharePrediction(${match.id})" title="生成分享图">分享</button></div>` : ''}
             ${predictionFormHtml}

@@ -1,0 +1,19 @@
+{
+  "siteUrl": "https://prbet.gekichumai.cn",
+  "feedToken": "填写与Linux网站BOT_FEED_TOKEN一致的令牌",
+  "napcatUrl": "http://127.0.0.1:3001",
+  "napcatToken": "填写NapCat的Access Token",
+  "groupIds": ["填写QQ群号"],
+  "games": ["cs2", "valorant"],
+  "dailyTime": "12:00",
+  "dayStart": "06:00",
+  "earlyMinutes": 10,
+  "reminderMinutes": 30,
+  "weeklyEnabled": true,
+  "weeklyTime": "20:00",
+  "resultsLimit": 12,
+  "freshnessMinutes": 20,
+  "pollSeconds": 60,
+  "lockPort": 39173,
+  "dryRun": true
+}

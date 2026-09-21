@@ -21,12 +21,17 @@ function settleMatch(matchId) {
 
 // 依据 points_earned 重建所有用户的 total_score。权威且幂等，
 // 是唯一的总分来源，避免增量累加导致的漂移。
+// 口径与排行榜一致：只统计活跃赛事下已结束比赛的积分（弃权局积分为 0，
+// 天然不计入；赛事停用或比赛状态回退后，其历史积分自动从总分中剔除）。
 function recalculateUserScores() {
     db.prepare('UPDATE users SET total_score = 0').run();
     const scores = db.prepare(`
-        SELECT user_id, SUM(COALESCE(points_earned, 0)) total
-        FROM predictions
-        GROUP BY user_id
+        SELECT p.user_id, SUM(COALESCE(p.points_earned, 0)) total
+        FROM predictions p
+        JOIN matches m ON m.id = p.match_id
+        JOIN tournaments tour ON tour.id = m.tournament_id
+        WHERE m.status = 'finished' AND tour.is_active = 1
+        GROUP BY p.user_id
     `).all();
     const update = db.prepare('UPDATE users SET total_score = ? WHERE id = ?');
     for (const row of scores) update.run(row.total || 0, row.user_id);

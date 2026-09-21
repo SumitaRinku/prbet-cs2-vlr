@@ -81,6 +81,20 @@ function ensureDatabase() {
             UNIQUE(user_id, match_id)
         );
 
+        CREATE TABLE IF NOT EXISTS prediction_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            prediction_id INTEGER,
+            user_id INTEGER NOT NULL,
+            match_id INTEGER NOT NULL,
+            action TEXT NOT NULL CHECK(action IN ('created', 'updated', 'deleted')),
+            predicted_winner_id INTEGER NOT NULL,
+            predicted_team1_score INTEGER NOT NULL,
+            predicted_team2_score INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS sync_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source TEXT NOT NULL,
@@ -104,6 +118,8 @@ function ensureDatabase() {
         CREATE INDEX IF NOT EXISTS idx_teams_game ON teams(game_type);
         CREATE INDEX IF NOT EXISTS idx_predictions_user ON predictions(user_id);
         CREATE INDEX IF NOT EXISTS idx_predictions_match ON predictions(match_id);
+        CREATE INDEX IF NOT EXISTS idx_prediction_history_user ON prediction_history(user_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_prediction_history_match ON prediction_history(match_id, created_at);
     `);
 
     const teamColumns = db.prepare('PRAGMA table_info(teams)').all().map(column => column.name);
@@ -161,6 +177,15 @@ function ensureDatabase() {
         // 弃权标记：PandaScore 对弃权局返回 canceled + winner_id，按 1-0 记录但不计入积分。
         db.exec('ALTER TABLE matches ADD COLUMN is_forfeit INTEGER NOT NULL DEFAULT 0');
     }
+    if (!matchColumns.includes('result_locked')) {
+        // 赛果锁定：管理员经 /result、/forfeit 人工录入赛果后置 1，PandaScore 同步不再
+        // 覆盖比分/胜者/状态/弃权标记，防止同步窗口内的人工修正被外部数据回滚。
+        // 存量回填：已有胜者的已结束比赛视为定局一并锁定（胜者缺失的留给同步补全）。
+        db.exec('ALTER TABLE matches ADD COLUMN result_locked INTEGER NOT NULL DEFAULT 0');
+        db.prepare("UPDATE matches SET result_locked = 1 WHERE status = 'finished' AND winner_team_id IS NOT NULL").run();
+    }
+
+    require('./bot-schema').ensureBotSchema(db);
 
     const predictionColumns = db.prepare('PRAGMA table_info(predictions)').all().map(column => column.name);
     if (predictionColumns.includes('streak_bonus')) {
@@ -198,6 +223,34 @@ function ensureDatabase() {
         console.log(`[init-db] 回填 ${forfeitCandidates.length} 场弃权比赛为弃权 1-0（不计分）`);
     }
 
+    // 历史主客对调修复：预测提交时接口强制校验「预测比分的隐含胜者 = predicted_winner_id」，
+    // 因此隐含胜者与预测胜者不一致的存量预测，必然是提交后 team1/team2 顺序被对调所致
+    //（同步覆写主客队）。对调回预测比分即可恢复语义；涉及比赛重新结算并重建总分。
+    // 幂等：修复后隐含胜者与预测胜者一致，不再命中条件；预测胜者已不在对阵中的
+    //（对手被更换）无法推断原顺序，保持原样不自动修。
+    const flippedPredictions = db.prepare(`
+        SELECT p.id, p.match_id
+        FROM predictions p
+        JOIN matches m ON m.id = p.match_id
+        WHERE p.predicted_winner_id IN (m.team1_id, m.team2_id)
+            AND (CASE WHEN p.predicted_team1_score > p.predicted_team2_score THEN m.team1_id ELSE m.team2_id END) != p.predicted_winner_id
+    `).all();
+    if (flippedPredictions.length) {
+        const flipScores = db.prepare('UPDATE predictions SET predicted_team1_score = predicted_team2_score, predicted_team2_score = predicted_team1_score, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+        const repairFlipped = db.transaction(() => {
+            const matchIds = new Set();
+            for (const row of flippedPredictions) {
+                flipScores.run(row.id);
+                matchIds.add(row.match_id);
+            }
+            for (const matchId of matchIds) settleMatch(matchId);
+            recalculateUserScores();
+            return matchIds;
+        });
+        const matchIds = repairFlipped();
+        console.log(`[init-db] 修复 ${flippedPredictions.length} 条因主客对调而错位的预测比分（涉及 ${matchIds.size} 场比赛，已重新结算）`);
+    }
+
     const adminUsername = process.env.ADMIN_USERNAME || 'admin';
     const admin = db.prepare('SELECT id FROM users WHERE username = ?').get(adminUsername);
     if (!admin) {
@@ -220,4 +273,3 @@ if (require.main === module) {
     ensureDatabase();
     console.log('Database ready');
 }
-
