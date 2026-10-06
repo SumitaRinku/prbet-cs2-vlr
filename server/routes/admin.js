@@ -97,7 +97,7 @@ router.put('/users/:id/role', (req, res) => {
 router.put('/users/:id/password', (req, res) => {
     const { password } = req.body;
     if (!password || password.length < 6) return res.status(400).json({ error: '密码至少6位' });
-    const result = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(password, 10), req.params.id);
+    const result = db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?').run(bcrypt.hashSync(password, 10), req.params.id);
     if (result.changes === 0) return res.status(404).json({ error: '用户不存在' });
     res.json({ message: '密码已重置' });
 });

@@ -352,7 +352,9 @@ async function changePassword(event) {
     if (!newValue || newValue.length < 6) { pfFeedback('新密码至少6位', 'err'); return; }
     if (newValue !== el('newPasswordConfirm').value) { pfFeedback('两次输入的新密码不一致', 'err'); return; }
     try {
-        await sharedApi('/auth/password', { method: 'PUT', body: { old_password: oldValue, new_password: newValue } });
+        const data = await sharedApi('/auth/password', { method: 'PUT', body: { old_password: oldValue, new_password: newValue } });
+        sharedState.token = data.token;
+        localStorage.setItem('token', data.token);
         el('oldPassword').value = el('newPassword').value = el('newPasswordConfirm').value = '';
         pfFeedback('密码已修改', 'ok');
     } catch (error) {

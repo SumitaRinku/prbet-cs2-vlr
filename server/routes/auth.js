@@ -55,8 +55,8 @@ router.put('/password', authLimiter, authenticateToken, (req, res) => {
     const user = db.prepare('SELECT id, password_hash FROM users WHERE id = ?').get(req.user.id);
     if (!user) return res.status(404).json({ error: '用户不存在' });
     if (!bcrypt.compareSync(old_password || '', user.password_hash)) return res.status(400).json({ error: '原密码错误' });
-    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(new_password, 10), user.id);
-    res.json({ message: '密码已修改' });
+    db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?').run(bcrypt.hashSync(new_password, 10), user.id);
+    res.json({ message: '密码已修改', token: signToken(user) });
 });
 
 module.exports = router;

@@ -121,7 +121,7 @@ async function tick(config, state, file, dependencies = {}) {
     if (stale.length) throw new Error(`暂停发送：${stale.join(', ')} 同步超过 ${config.freshnessMinutes} 分钟未成功，或尚未完成升级后的首次同步`);
     for (const group of config.groupIds) {
         const watched = state.watched[group] ||= {};
-        const candidates = plan(feed, config, now, watched);
+        const candidates = plan(feed, { ...config, commandsEnabled: config.commandGroupIds?.includes(group) || false }, now, watched);
         const activeKeys = new Set(candidates.map(job => `${group}|${job.key}`));
         for (const candidate of candidates) {
             const key = `${group}|${candidate.key}`;
@@ -143,6 +143,8 @@ async function tick(config, state, file, dependencies = {}) {
                 if (['unknown', 'sending'].includes(part.status)) break;
                 if (part.status === 'sent') continue;
                 if (part.attempts >= 3 || (part.retryAt || 0) > now) break;
+                // Let user replies interrupt a long daily/weekly report between parts.
+                if (dependencies.beforeSend) await dependencies.beforeSend();
                 if (Date.now() > job.expires && dependencies.now === undefined) break;
                 if (dependencies.now === undefined && freshness(feed, config, Date.now()).length) {
                     throw new Error('本轮发送期间数据已过期，等待下一轮重新拉取');
@@ -222,7 +224,7 @@ async function main() {
                 if (interactions) await interactions.pump();
                 if (Date.now() - lastTick >= config.pollSeconds * 1000) {
                     lastTick = Date.now();
-                    await tick(config, state, stateFile);
+                    await tick(config, state, stateFile, { beforeSend: interactions ? () => interactions.pump({ commandsOnly: true }) : undefined });
                 }
             }
             catch (error) { console.error(`[${new Date().toISOString()}] ${error.message}`); if (args.includes('--once')) process.exitCode = 1; }

@@ -80,6 +80,38 @@ test('05:50 schedules the correct calendar report; stale past fixtures do not re
     assert.equal(plan(feed(excluded), config, now).filter(job => job.kind === 'reminder').length, 0);
 });
 
+test('reminders include match ID, deadline, format-valid command and direct match link', () => {
+    for (const [format, score] of [['BO1', '1:0'], ['BO3', '2:1'], ['BO5', '3:1']]) {
+        const m = match(123, '2026-09-22T12:20:00+08:00', { format, betting_enabled: 1 });
+        const reminder = plan(feed([m]), { ...config, commandsEnabled: true }, now).find(job => job.kind === 'reminder');
+        assert.match(reminder.text, /#123 Alpha vs Beta/);
+        assert.match(reminder.text, /竞猜截止：09\/22 12:20（北京时间）/);
+        assert.ok(reminder.text.includes(`/prbet 竞猜 123 ${score}`));
+        assert.match(reminder.text, /请改成你的预测/);
+        assert.match(reminder.text, /tournament=1#match-row-123/);
+        const closed = plan(feed([{ ...m, betting_enabled: 0 }]), { ...config, commandsEnabled: true }, now).find(job => job.kind === 'reminder');
+        assert.match(closed.text, /当前竞猜未开放/);
+        assert.doesNotMatch(closed.text, /\/prbet 竞猜|竞猜截止/);
+    }
+});
+
+test('reminder command instructions appear only in groups with commands enabled', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prbet-reminder-groups-'));
+    const sent = [];
+    try {
+        await tick({ ...config, groupIds: ['123456', '123457'], commandGroupIds: ['123456'] },
+            loadState(path.join(dir, 'delivery.json')), path.join(dir, 'delivery.json'), {
+                now, sleep: async () => {}, fetchFeed: async () => feed([match(123, '2026-09-22T12:20:00+08:00', { betting_enabled: 1 })]),
+                sendMessage: async (c, group, text) => { sent.push({ group, text }); return { status: 'sent' }; }
+            });
+        const reminders = sent.filter(item => item.text.startsWith('【即将开赛'));
+        assert.equal(reminders.length, 2);
+        assert.match(reminders.find(item => item.group === '123456').text, /\/prbet 竞猜 123 2:1/);
+        assert.doesNotMatch(reminders.find(item => item.group === '123457').text, /\/prbet/);
+        assert.match(reminders.find(item => item.group === '123457').text, /网站参与预测/);
+    } finally { fs.rmSync(dir, { recursive: true }); }
+});
+
 test('per-game freshness rejects missing and stale games', () => {
     const data = feed();
     data.sync[1].last_success_at = '2026-09-01T00:00:00Z';

@@ -147,9 +147,15 @@ function plan(feed, config, now, watched = {}) {
             jobs.push({ key: `reminder:${m.id}:${iso(time)}`, kind: 'reminder', expires: time,
                 watched: [snapshot(m)], text: [
                     `【即将开赛 · 约 ${Math.ceil(remaining / 60000)} 分钟后】`, title(m),
-                    `${versus(m)} · ${m.format}`, `${label(time)}（北京时间）`,
-                    ...(m.betting_enabled ? ['赛前可参与预测'] : []),
-                    `${config.siteUrl}/tournaments.html?tournament=${m.tournament_id}`
+                    `#${m.id} ${versus(m)} · ${m.format}`, `开赛：${label(time)}（北京时间）`,
+                    ...(m.betting_enabled ? [
+                        `竞猜截止：${label(time)}（北京时间）`,
+                        ...(config.commandsEnabled ? [
+                            '竞猜示例（请改成你的预测，比分按上方队伍顺序）：',
+                            `/prbet 竞猜 ${m.id} ${m.format === 'BO1' ? '1:0' : m.format === 'BO5' ? '3:1' : '2:1'}`
+                        ] : ['赛前可在网站参与预测'])
+                    ] : ['当前竞猜未开放']),
+                    `${config.siteUrl}/tournaments.html?tournament=${m.tournament_id}#match-row-${m.id}`
                 ].join('\n') });
         }
     }

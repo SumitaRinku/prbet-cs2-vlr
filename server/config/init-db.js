@@ -10,6 +10,7 @@ function ensureDatabase() {
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin')),
+            token_version INTEGER NOT NULL DEFAULT 0,
             total_score INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -128,6 +129,10 @@ function ensureDatabase() {
     }
 
     const userColumns = db.prepare('PRAGMA table_info(users)').all().map(column => column.name);
+    if (!userColumns.includes('token_version')) {
+        // 改密时递增，使所有旧登录令牌立即失效；存量令牌按版本 0 兼容。
+        db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0');
+    }
     if (!userColumns.includes('predictions_public')) {
         // 预测数据是否公开：排行榜默认只展示普通用户，管理员置 1 后可自愿上榜
         db.exec('ALTER TABLE users ADD COLUMN predictions_public INTEGER NOT NULL DEFAULT 0');

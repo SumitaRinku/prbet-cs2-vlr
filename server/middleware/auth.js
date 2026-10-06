@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const db = require('../config/database');
 
 // 优先用环境变量里的固定密钥；没配就用磁盘上持久化的随机密钥。
 // 密钥只生成一次并存到 data/.jwt_secret，之后每次启动都复用，
@@ -32,7 +33,19 @@ function getJwtSecret() {
 }
 
 function signToken(user) {
-    return jwt.sign({ id: user.id, username: user.username, role: user.role }, getJwtSecret(), { expiresIn: '30d', algorithm: 'HS256' });
+    const current = db.prepare('SELECT id, username, role, token_version FROM users WHERE id = ?').get(user.id);
+    if (!current) throw new Error('用户不存在');
+    return jwt.sign(current, getJwtSecret(), { expiresIn: '30d', algorithm: 'HS256' });
+}
+
+function verifyUser(token) {
+    const claims = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+    if (!Number.isSafeInteger(claims.id) || claims.id <= 0) throw new Error('无效用户');
+    const user = db.prepare('SELECT id, username, role, token_version FROM users WHERE id = ?').get(claims.id);
+    const version = claims.token_version === undefined ? 0 : claims.token_version;
+    if (!user || version !== user.token_version) throw new Error('登录已失效');
+    // 权限取数据库现值，删除用户或降级管理员后无需等待 JWT 到期。
+    return { id: user.id, username: user.username, role: user.role };
 }
 
 function authenticateToken(req, res, next) {
@@ -43,11 +56,11 @@ function authenticateToken(req, res, next) {
     }
 
     try {
-        req.user = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
-        next();
+        req.user = verifyUser(token);
     } catch (error) {
-        res.status(401).json({ error: '登录已过期，请重新登录' });
+        return res.status(401).json({ error: '登录已过期，请重新登录' });
     }
+    next();
 }
 
 function optionalAuth(req, res, next) {
@@ -58,7 +71,7 @@ function optionalAuth(req, res, next) {
     }
 
     try {
-        req.user = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+        req.user = verifyUser(token);
     } catch (error) {
         req.user = null;
     }
