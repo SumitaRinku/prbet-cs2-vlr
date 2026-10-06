@@ -6,6 +6,10 @@ const { calculatePoints } = require('./scoring');
 // 仅在分数实际变化时写库；返回 processed（处理条数）与 changed（变化条数），
 // 调用方可据此跳过无谓的全量总分重建。
 function settleMatch(matchId) {
+    return db.transaction(() => settleMatchInTransaction(matchId))();
+}
+
+function settleMatchInTransaction(matchId) {
     const match = db.prepare('SELECT * FROM matches WHERE id = ?').get(matchId);
     if (!match || match.status !== 'finished') return { processed: 0, changed: 0 };
     const predictions = db.prepare('SELECT * FROM predictions WHERE match_id = ?').all(matchId);
@@ -16,6 +20,7 @@ function settleMatch(matchId) {
         const points = calculatePoints(prediction, match);
         changed += update.run(points, prediction.id, points).changes;
     }
+    require('../services/botSettlement').captureSettlement(db, matchId);
     return { processed: predictions.length, changed };
 }
 

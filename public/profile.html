@@ -66,6 +66,14 @@
             </section>
 
             <section class="panel profile-tab-panel" id="profileTabSettings" role="tabpanel" hidden>
+                <div class="section-head"><h2>QQ 群竞猜绑定</h2></div>
+                <p>绑定后可在启用功能的群内提交或修改竞猜；加入的群会在赛后展示你的竞猜结果及本场得分。</p>
+                <form id="botBindingForm" class="pf-form">
+                    <input id="botBindingQQ" type="text" inputmode="numeric" pattern="[1-9][0-9]{4,15}" required placeholder="你的 QQ 号" aria-label="你的 QQ 号">
+                    <button type="submit">生成绑定码</button>
+                    <button type="button" id="botUnbind">解除 QQ 绑定</button>
+                </form>
+                <p id="botBindingFeedback" class="pf-feedback" role="status"></p>
                 <div class="section-head"><h2>修改密码</h2></div>
                 <form id="passwordForm" class="pf-form" autocomplete="off">
                     <input id="oldPassword" type="password" placeholder="原密码" autocomplete="current-password">
@@ -101,5 +109,6 @@
     <script src="/js/shared.js"></script>
     <script src="/js/share.js"></script>
     <script src="/js/profile.js"></script>
+    <script src="/js/bot-account.js"></script>
 </body>
 </html>

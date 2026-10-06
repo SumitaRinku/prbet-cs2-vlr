@@ -9,6 +9,7 @@ function readConfig(file) {
     const config = { games: ['cs2', 'valorant'], dailyTime: '12:00', dayStart: '06:00', earlyMinutes: 10,
         reminderMinutes: 30, weeklyEnabled: true, weeklyTime: '20:00', resultsLimit: 12,
         freshnessMinutes: 20, pollSeconds: 60, lockPort: 39173, dryRun: true,
+        commandGroupIds: [], eventPort: 3002, eventSecret: '',
         ...JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '')) };
     for (const name of ['siteUrl', 'napcatUrl']) {
         const url = new URL(config[name]);
@@ -21,6 +22,10 @@ function readConfig(file) {
     }
     if (!Array.isArray(config.groupIds) || !config.groupIds.length || config.groupIds.some(id => typeof id !== 'string' || !/^[1-9]\d{4,15}$/.test(id))) throw new Error('groupIds 必须填写字符串形式的QQ群号');
     config.groupIds = [...new Set(config.groupIds)];
+    if (!Array.isArray(config.commandGroupIds) || config.commandGroupIds.some(id => !config.groupIds.includes(id))) throw new Error('commandGroupIds 必须是 groupIds 中的群号');
+    config.commandGroupIds = [...new Set(config.commandGroupIds)];
+    if (config.commandGroupIds.length && (typeof config.eventSecret !== 'string' || config.eventSecret.length < 16 || config.eventSecret.includes('填写'))) throw new Error('启用群指令需设置至少16字符的 eventSecret，并填入 NapCat HTTP 客户端 secret');
+    if (!Number.isInteger(config.eventPort) || config.eventPort < 1024 || config.eventPort > 65535 || config.eventPort === config.lockPort) throw new Error('eventPort 必须是独立的有效端口');
     if (!Array.isArray(config.games) || !config.games.length || config.games.some(game => !['cs2', 'valorant'].includes(game))) throw new Error('games 只支持 cs2 / valorant');
     for (const name of ['dailyTime', 'dayStart', 'weeklyTime']) {
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(config[name])) throw new Error(`${name} 应为 HH:mm`);
@@ -189,6 +194,7 @@ async function main() {
         return;
     }
     const lock = await acquireLock(config.lockPort);
+    let interactions;
     try {
         const state = loadState(stateFile);
         saveState(stateFile, state);
@@ -205,13 +211,25 @@ async function main() {
             }
             return;
         }
+        if (config.commandGroupIds.length) {
+            interactions = await require('./interactions').startInteractions(config,
+                path.join(path.dirname(file), 'data', 'interactions.json'), { saveState, sendMessage, sleep });
+            console.log(`群指令接收地址：http://127.0.0.1:${config.eventPort}/onebot`);
+        }
+        let lastTick = 0;
         do {
-            try { await tick(config, state, stateFile); }
+            try {
+                if (interactions) await interactions.pump();
+                if (Date.now() - lastTick >= config.pollSeconds * 1000) {
+                    lastTick = Date.now();
+                    await tick(config, state, stateFile);
+                }
+            }
             catch (error) { console.error(`[${new Date().toISOString()}] ${error.message}`); if (args.includes('--once')) process.exitCode = 1; }
             if (args.includes('--once')) break;
-            await sleep(config.pollSeconds * 1000);
+            await sleep(interactions ? 2000 : config.pollSeconds * 1000);
         } while (true);
-    } finally { lock.close(); }
+    } finally { if (interactions) await interactions.close(); lock.close(); }
 }
 
 if (require.main === module) main().catch(error => { console.error(error.message); process.exitCode = 1; });

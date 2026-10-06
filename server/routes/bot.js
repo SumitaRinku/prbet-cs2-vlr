@@ -1,10 +1,11 @@
 const express = require('express');
 const { timingSafeEqual } = require('node:crypto');
 const { createRateLimiter } = require('../middleware/rateLimit');
+const { runCommand, policy } = require('../services/botCommands');
 
 function createBotRouter(db, getToken = () => process.env.BOT_FEED_TOKEN || '') {
     const router = express.Router();
-    router.use(createRateLimiter({ windowMs: 60000, max: 60 }));
+    router.use(createRateLimiter({ windowMs: 60000, max: 300 }));
     router.use((req, res, next) => {
         res.set('Cache-Control', 'no-store');
         const token = getToken();
@@ -44,6 +45,29 @@ function createBotRouter(db, getToken = () => process.env.BOT_FEED_TOKEN || '') 
         const found = new Set(result.rows.map(row => String(row.id)));
         res.json({ version: 1, generated_at: new Date().toISOString(), matches: result.rows,
             sync: result.sync, unavailable_ids: ids.filter(id => !found.has(id)) });
+    });
+    router.post('/command', (req, res, next) => {
+        try { res.json(runCommand(db, req.body)); }
+        catch (error) { if (error.expected) res.status(400).json({ error: error.message }); else next(error); }
+    });
+    router.get('/settlements', (req, res) => {
+        const group = String(req.query.group_id || '');
+        if (!policy().groups.includes(group)) return res.status(403).json({ error: '本群未启用竞猜功能' });
+        const latest = db.prepare('SELECT COALESCE(MAX(id),0) id FROM bot_settlement_events').get().id;
+        if (req.query.after === undefined) return res.json({ cursor: latest, events: [] });
+        if (!/^\d{1,15}$/.test(String(req.query.after))) return res.status(400).json({ error: 'Invalid cursor' });
+        const after = Number(req.query.after);
+        if (after > latest) return res.status(409).json({ error: '结算游标超过服务器记录，请检查是否恢复了旧数据库' });
+        const events = db.prepare('SELECT * FROM bot_settlement_events WHERE id>? ORDER BY id LIMIT 50').all(after);
+        const members = db.prepare(`SELECT b.user_id,g.joined_at FROM bot_group_members g
+            JOIN bot_bindings b ON b.qq_id=g.qq_id WHERE g.group_id=?`).all(group);
+        const selected = events.map(event => {
+            const payload = JSON.parse(event.payload);
+            const permitted = new Set(members.filter(m => m.joined_at <= event.created_at).map(m => m.user_id));
+            payload.predictions = payload.predictions.filter(p => permitted.has(p.user_id));
+            return { id: event.id, ...payload };
+        });
+        res.json({ cursor: events.length ? events[events.length - 1].id : after, events: selected });
     });
     return router;
 }
