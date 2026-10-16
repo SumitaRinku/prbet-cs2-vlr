@@ -150,6 +150,7 @@ function plan(feed, config, now, watched = {}) {
                     `#${m.id} ${versus(m)} · ${m.format}`, `开赛：${label(time)}（北京时间）`,
                     ...(m.betting_enabled ? [
                         `竞猜截止：${label(time)}（北京时间）`,
+                        '回复本消息并发送比分即可竞猜（如 2:1）：',
                         ...(config.commandsEnabled ? [
                             '竞猜示例（请改成你的预测，比分按上方队伍顺序）：',
                             `/prbet 竞猜 ${m.id} ${m.format === 'BO1' ? '1:0' : m.format === 'BO5' ? '3:1' : '2:1'}`

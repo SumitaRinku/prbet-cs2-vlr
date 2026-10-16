@@ -215,7 +215,7 @@ async function main() {
         }
         if (config.commandGroupIds.length) {
             interactions = await require('./interactions').startInteractions(config,
-                path.join(path.dirname(file), 'data', 'interactions.json'), { saveState, sendMessage, sleep });
+                path.join(path.dirname(file), 'data', 'interactions.json'), { saveState, sendMessage, sleep, reminderState: state });
             console.log(`群指令接收地址：http://127.0.0.1:${config.eventPort}/onebot`);
         }
         let lastTick = 0;

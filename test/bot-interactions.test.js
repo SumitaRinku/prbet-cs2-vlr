@@ -255,6 +255,18 @@ test('event parser ignores non-whitelisted, self, forged raw strings, stale even
     assert.equal(verifySignature(body,'sha1=bad',secret),false);
 });
 
+test('replying to a sent reminder converts a score into a prediction command', () => {
+    const config = { commandGroupIds: [group] };
+    const reminderState = { jobs: { reminder: { group, kind: 'reminder', watched: [{ id: 1 }], parts: [{ messageId: '77' }] } } };
+    const parsed = parseEvent(event({ message: [
+        { type: 'reply', data: { id: '77' } }, { type: 'text', data: { text: '2：1' } }
+    ] }), config, now, reminderState);
+    assert.equal(parsed.text, '竞猜 1 2:1');
+    assert.equal(parseEvent(event({ message: [
+        { type: 'reply', data: { id: '999' } }, { type: 'text', data: { text: '2:1' } }
+    ] }), config, now, reminderState), null);
+});
+
 test('worker durably receives signed events, deduplicates retries, queues settlement before cursor advance', async () => {
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'prbet-interactions-'));
     const file=path.join(dir,'interactions.json');

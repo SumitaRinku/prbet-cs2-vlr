@@ -9,7 +9,21 @@ function verifySignature(body, signature, secret) {
     return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
-function parseEvent(event, config, now = Date.now()) {
+function findReminderMatch(event, reminderState) {
+    const reply = event.message?.find(segment => segment?.type === 'reply');
+    if (!reply || !reminderState?.jobs) return null;
+    const replyId = String(reply.data?.id || '');
+    if (!/^\d+$/.test(replyId)) return null;
+    const scoreText = event.message.filter(segment => segment?.type === 'text').map(segment => segment.data?.text || '').join('').trim();
+    const score = /^(\d{1,2})\s*[:：-]\s*(\d{1,2})$/.exec(scoreText);
+    if (!score) return null;
+    const job = Object.values(reminderState.jobs).find(candidate => candidate.group === String(event.group_id)
+        && candidate.kind === 'reminder' && candidate.watched?.[0]?.id != null
+        && candidate.parts?.some(part => String(part.messageId) === replyId));
+    return job ? { matchId: job.watched[0].id, score: `${Number(score[1])}:${Number(score[2])}` } : null;
+}
+
+function parseEvent(event, config, now = Date.now(), reminderState) {
     const group = String(event.group_id || ''), qq = String(event.user_id || '');
     if (!config.commandGroupIds.includes(group) || qq === String(event.self_id)) return null;
     if (!Number.isFinite(event.time) || Math.abs(now - event.time * 1000) > 600000) return null;
@@ -19,12 +33,15 @@ function parseEvent(event, config, now = Date.now()) {
     if (event.post_type !== 'message' || event.message_type !== 'group'
         || !Number.isFinite(event.time) || Math.abs(now - event.time * 1000) > 600000) return null;
     if (!Array.isArray(event.message)) return null;
-    // Ignore non-text content except a direct @ of the bot. Never trust raw_message or sender.role.
-    if (event.message.some(s => s.type !== 'text' && !(s.type === 'at' && String(s.data?.qq) === String(event.self_id)))) return null;
+    // Ignore non-text content except a direct @ of the bot or a reply to a sent reminder.
+    if (event.message.some(s => s.type !== 'text' && s.type !== 'reply'
+        && !(s.type === 'at' && String(s.data?.qq) === String(event.self_id)))) return null;
     const text = event.message.filter(s => s.type === 'text').map(s => s.data?.text || '').join('').trim();
+    if (!/^-?\d{1,20}$/.test(String(event.message_id))) return null;
+    const replyPrediction = findReminderMatch(event, reminderState);
     const match = /^\/prbet(?:\s+(.+))?$/is.exec(text);
-    if (!match || !/^-?\d{1,20}$/.test(String(event.message_id))) return null;
-    const command = (match[1] || '帮助').trim();
+    if (!replyPrediction && !match) return null;
+    const command = replyPrediction ? `竞猜 ${replyPrediction.matchId} ${replyPrediction.score}` : (match[1] || '帮助').trim();
     if (command.length > 200 || !/^[1-9]\d{4,15}$/.test(qq)) return null;
     return { group, qq, request_id: `msg:${event.self_id}:${event.message_id}`, text: command, silent: false };
 }
@@ -80,7 +97,7 @@ function mergedSettlementText(events) {
     return lines.join('\n');
 }
 
-async function startInteractions(config, file, { saveState, sendMessage, request = siteRequest, sleep, now = Date.now } = {}) {
+async function startInteractions(config, file, { saveState, sendMessage, request = siteRequest, sleep, now = Date.now, reminderState } = {}) {
     const state = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { version: 1, inbox: {}, cursors: {}, deliveries: {} };
     if (state.version !== 1 || !state.inbox || !state.cursors || !state.deliveries) throw new Error('群竞猜状态文件无效，请恢复备份');
     if (!state.pendingSettlements || typeof state.pendingSettlements !== 'object') state.pendingSettlements = {};
@@ -100,7 +117,7 @@ async function startInteractions(config, file, { saveState, sendMessage, request
             }
             const body = Buffer.concat(chunks);
             if (!verifySignature(body, req.headers['x-signature'], config.eventSecret)) { res.writeHead(401).end(); return; }
-            const command = parseEvent(JSON.parse(body.toString('utf8')), config, now());
+            const command = parseEvent(JSON.parse(body.toString('utf8')), config, now(), reminderState);
             if (!command) { res.writeHead(200).end('{}'); return; }
             const key = `${command.group}:${command.qq}:${command.request_id}`;
             if (!state.inbox[key]) {
