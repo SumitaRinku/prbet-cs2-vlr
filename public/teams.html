@@ -7,6 +7,7 @@
     <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
     <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/hub.css">
     <!-- 主题脚本置于 head 内同步执行：首帧渲染前写入 data-theme，避免暗色模式下页面闪白 -->
     <script src="/js/theme.js"></script>
 </head>
@@ -26,38 +27,44 @@
         <section>
             <p class="eyebrow">Team Hub</p>
             <h1>队伍中心</h1>
-            <p>查看队伍近期赛程、赛事履历、比赛结果与阶段表现。</p>
+            <p>查看队伍近期战绩、下一场比赛与赛事履历。</p>
         </section>
     </header>
 
-    <main class="page-shell team-page">
+    <main class="page-shell th-page">
         <section id="teamListView">
-            <div class="section-head team-toolbar">
-                <div><h2>全部队伍</h2><p>按游戏筛选，点击队伍查看完整履历。</p></div>
-                <div class="team-filters">
-                    <select id="teamGameFilter" aria-label="游戏类型">
-                        <option value="cs2">CS2</option>
-                        <option value="valorant">Valorant</option>
-                        <option value="">全部游戏</option>
-                    </select>
-                    <select id="teamSort" aria-label="排序方式">
-                        <option value="recent">最近活跃</option>
-                        <option value="win_rate">胜率最高</option>
-                        <option value="wins">胜场最多</option>
-                        <option value="played">已赛最多</option>
-                        <option value="name">名称 A-Z</option>
-                    </select>
-                    <select id="teamActivity" aria-label="队伍筛选">
-                        <option value="">全部队伍</option>
-                        <option value="active">有比赛记录</option>
-                        <option value="upcoming">有待赛比赛</option>
-                    </select>
-                    <input id="teamSearch" type="search" placeholder="搜索队伍名称或简称" aria-label="搜索队伍">
+            <div class="th-bar">
+                <label class="th-search">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 1 0 4.55 13.45l4.25 4.25 1.4-1.4-4.25-4.25A7.5 7.5 0 0 0 10.5 3Zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z" fill="currentColor"/></svg>
+                    <input id="teamSearch" type="search" placeholder="搜索队伍名称或简称" aria-label="搜索队伍" autocomplete="off">
+                </label>
+                <div id="teamGameSeg" class="th-seg" role="group" aria-label="游戏类型">
+                    <button type="button" data-game="cs2">CS2</button>
+                    <button type="button" data-game="valorant">Valorant</button>
+                    <button type="button" data-game="">全部</button>
                 </div>
+                <div class="th-selects">
+                    <label>排序
+                        <select id="teamSort" aria-label="排序方式">
+                            <option value="recent">最近活跃</option>
+                            <option value="wins">胜场最多</option>
+                            <option value="played">已赛最多</option>
+                            <option value="name">名称 A-Z</option>
+                        </select>
+                    </label>
+                    <label>范围
+                        <select id="teamActivity" aria-label="队伍范围">
+                            <option value="">全部队伍</option>
+                            <option value="active">有比赛记录</option>
+                            <option value="upcoming">有待赛比赛</option>
+                        </select>
+                    </label>
+                </div>
+                <span id="teamCount" class="th-count"></span>
             </div>
-            <div id="teamsGrid" class="teams-grid"><div class="loading-text">加载队伍中...</div></div>
+            <div id="teamsGrid" class="th-grid"><div class="th-loading">加载队伍中...</div></div>
         </section>
-        <section id="teamDetailView" class="team-detail-view" hidden></section>
+        <section id="teamDetailView" class="th-detail" hidden></section>
     </main>
 
     <footer class="site-footer"><div class="icp-info">{{BEIAN}}</div></footer>

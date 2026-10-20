@@ -7,6 +7,7 @@
     <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
     <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/hub.css">
     <!-- 主题脚本置于 head 内同步执行：首帧渲染前写入 data-theme，避免暗色模式下页面闪白 -->
     <script src="/js/theme.js"></script>
 </head>
@@ -24,35 +25,47 @@
             <div id="userPanel"></div>
         </nav>
         <section>
+            <p class="eyebrow">TOURNAMENT ARCHIVE</p>
             <h1>赛事回看</h1>
-            <p>赛事进度、赛果与预测统计。</p>
+            <p>按游戏、状态与级别筛选赛事，回看赛果、赛程进度与预测统计。</p>
         </section>
     </header>
 
-    <main class="page-shell tournament-archive-page">
-        <div class="filters-bar panel">
-            <strong>筛选赛事</strong>
-            <select id="gameFilter" onchange="setGame(this.value)">
-                <option value="cs2">CS2</option>
-                <option value="valorant">Valorant</option>
-                <option value="">全部游戏</option>
-            </select>
-            <select id="statusFilter" onchange="loadTournaments()">
-                <option value="">全部赛事</option>
-                <option value="ongoing">进行中</option>
-                <option value="finished">已结束</option>
-            </select>
-            <select id="tierFilter" onchange="setTier(this.value)">
-                <option value="">全部级别</option>
-                <option value="1">高级</option>
-                <option value="2">普通</option>
-                <option value="3">低级</option>
-            </select>
-            <span id="tournamentCount" class="filter-result-count"></span>
-            <div id="brandFilters" class="brand-filter-list"></div>
-            <p id="tierHint" class="tier-filter-hint"></p>
-        </div>
-        <section id="tournaments" class="archive-list"></section>
+    <main class="page-shell ar-page">
+        <section class="ar-bar" aria-label="赛事筛选">
+            <div id="gameSeg" class="ar-seg" role="group" aria-label="游戏类型">
+                <button type="button" data-game="cs2">CS2</button>
+                <button type="button" data-game="valorant">Valorant</button>
+                <button type="button" data-game="">全部</button>
+            </div>
+            <label class="ar-search">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 1 0 4.55 13.45l4.25 4.25 1.4-1.4-4.25-4.25A7.5 7.5 0 0 0 10.5 3Zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z" fill="currentColor"/></svg>
+                <input id="tournamentSearch" type="search" placeholder="搜索赛事名称" aria-label="搜索赛事" autocomplete="off">
+            </label>
+            <label class="ar-field">状态
+                <select id="statusFilter" onchange="loadTournaments()">
+                    <option value="">全部</option>
+                    <option value="ongoing">进行中</option>
+                    <option value="finished">已结束</option>
+                </select>
+            </label>
+            <label class="ar-field">级别
+                <select id="tierFilter" onchange="setTier(this.value)">
+                    <option value="">全部</option>
+                    <option value="1">高级</option>
+                    <option value="2">普通</option>
+                    <option value="3">低级</option>
+                </select>
+            </label>
+            <div id="viewModeToggle" class="ar-toggle" role="group" aria-label="赛事列表显示方式">
+                <button type="button" data-view-mode="detail" onclick="setTournamentViewMode('detail')" title="卡片视图">卡片</button>
+                <button type="button" data-view-mode="compact" onclick="setTournamentViewMode('compact')" title="紧凑视图">紧凑</button>
+            </div>
+            <span id="tournamentCount" class="ar-count"></span>
+            <div id="brandFilters" class="ar-brands" aria-label="按厂牌筛选"></div>
+            <p id="tierHint" class="ar-hint"></p>
+        </section>
+        <section id="tournaments" class="ar-list"></section>
     </main>
 
     <div id="detailModal" class="modal" hidden>

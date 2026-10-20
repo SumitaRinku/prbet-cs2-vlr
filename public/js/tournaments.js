@@ -1,15 +1,17 @@
 const state = {
-    game: localStorage.getItem('gameFilter') || 'cs2',
-    viewMode: 'detail',
+    game: localStorage.getItem('gameFilter') ?? 'cs2',
+    viewMode: localStorage.getItem('tournamentViewMode') === 'compact' ? 'compact' : 'detail',
     tournaments: [],
     brand: localStorage.getItem('tournamentBrandFilter') || '',
     tier: localStorage.getItem('tournamentTierFilter') || '',
+    search: '',
     activeTournamentId: new URLSearchParams(location.search).get('tournament') || ''
 };
 
-const gameFilterEl = document.querySelector('#gameFilter');
+const gameSegEl = document.querySelector('#gameSeg');
 const statusFilterEl = document.querySelector('#statusFilter');
 const tierFilterEl = document.querySelector('#tierFilter');
+const searchEl = document.querySelector('#tournamentSearch');
 const brandFiltersEl = document.querySelector('#brandFilters');
 const viewModeToggleEl = document.querySelector('#viewModeToggle');
 const tournamentsEl = document.querySelector('#tournaments');
@@ -17,9 +19,16 @@ const tournamentCountEl = document.querySelector('#tournamentCount');
 const detailModalEl = document.querySelector('#detailModal');
 const detailModalBodyEl = document.querySelector('#detailModalBody');
 
-if (gameFilterEl) gameFilterEl.value = state.game;
 if (tierFilterEl) tierFilterEl.value = state.tier;
+syncGameSeg();
 applyViewMode();
+
+function syncGameSeg() {
+    if (!gameSegEl) return;
+    gameSegEl.querySelectorAll('button[data-game]').forEach(button => {
+        button.classList.toggle('active', button.dataset.game === state.game);
+    });
+}
 
 function setGame(game) {
     state.game = game;
@@ -28,12 +37,13 @@ function setGame(game) {
     state.brand = '';
     localStorage.setItem('gameFilter', game);
     localStorage.setItem('tournamentBrandFilter', '');
+    syncGameSeg();
     updateTournamentUrl();
     renderTierHint();
     loadTournaments();
 }
 
-// ---------- 厂牌 / 级别筛选（对已加载数据客户端过滤，切换即时生效） ----------
+// ---------- 厂牌 / 级别 / 搜索筛选（对已加载数据客户端过滤，切换即时生效） ----------
 
 // 厂牌 chip 展示顺序（与服务端 BRAND_RULES 对应；全部游戏时取并集）
 const BRAND_ORDER = {
@@ -56,9 +66,9 @@ function setTier(tier) {
 
 // 级别判定口径说明（与后端 tournamentTier.js 的关键词规则对齐），随所选游戏切换
 const TIER_HINTS = {
-    cs2: '<b>高级</b><i>：Major 级顶级大赛</i>　<b>普通</b><i>：BLAST / IEM / EPL 等常规国际赛事</i>　<b>低级</b><i>：预选赛（Qualifier）</i>',
-    valorant: '<b>高级</b><i>：Masters / Champions 国际大赛</i>　<b>普通</b><i>：赛区联赛（EMEA / CN / AMER / Pacific）等常规赛事</i>　<b>低级</b><i>：预选赛（Qualifier）</i>',
-    '': '<b>高级</b><i>：CS2 Major、Valorant Masters / Champions</i>　<b>普通</b><i>：其余常规赛事</i>　<b>低级</b><i>：预选赛（Qualifier）</i>'
+    cs2: '<b>高级</b>：Major 级顶级大赛　<b>普通</b>：BLAST / IEM / EPL 等常规国际赛事　<b>低级</b>：预选赛',
+    valorant: '<b>高级</b>：Masters / Champions 国际大赛　<b>普通</b>：赛区联赛（EMEA / CN / AMER / Pacific）　<b>低级</b>：预选赛',
+    '': '<b>高级</b>：CS2 Major、Valorant Masters / Champions　<b>普通</b>：其余常规赛事　<b>低级</b>：预选赛'
 };
 
 function renderTierHint() {
@@ -67,10 +77,16 @@ function renderTierHint() {
 }
 
 function filteredTournaments() {
-    return state.tournaments.filter(t =>
-        (!state.brand || (state.brand === '其他' ? !t.brand : t.brand === state.brand)) &&
-        (!state.tier || String(t.effective_tier) === state.tier)
-    );
+    const keyword = state.search.trim().toLowerCase();
+    return state.tournaments.filter(t => {
+        if (state.brand && (state.brand === '其他' ? t.brand : t.brand !== state.brand)) return false;
+        if (state.tier && String(t.effective_tier) !== state.tier) return false;
+        if (keyword) {
+            const haystack = `${t.name || ''} ${t.short_name || ''}`.toLowerCase();
+            if (!haystack.includes(keyword)) return false;
+        }
+        return true;
+    });
 }
 
 function renderBrandChips() {
@@ -90,14 +106,14 @@ function renderBrandChips() {
         const ia = order.indexOf(a), ib = order.indexOf(b);
         return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
     });
-    const chip = (key, label, count) => `<button type="button" class="brand-filter ${state.brand === key ? 'active' : ''}" onclick="setBrand('${key}')"><span>${escapeHtml(label)}</span><b>${count}</b></button>`;
+    const chip = (key, label, count) => `<button type="button" class="ar-chip ${state.brand === key ? 'active' : ''}" onclick="setBrand('${key}')"><span>${escapeHtml(label)}</span><b>${count}</b></button>`;
     brandFiltersEl.innerHTML = chip('', '全部', state.tournaments.length) + keys.map(key => chip(key, key, counts.get(key))).join('');
 }
 
 function renderArchiveList() {
     const rows = filteredTournaments();
     if (tournamentCountEl) tournamentCountEl.textContent = `${rows.length} 个赛事`;
-    tournamentsEl.innerHTML = rows.map(tournamentCard).join('') || '<div class="empty-state"><h3>暂无赛事</h3><p>请调整筛选条件。</p></div>';
+    tournamentsEl.innerHTML = rows.map(tournamentCard).join('') || '<div class="ar-empty"><h3>暂无赛事</h3><p>调整游戏、级别或厂牌筛选试试。</p></div>';
     applyViewMode();
 }
 
@@ -109,9 +125,8 @@ function setTournamentViewMode(mode) {
 
 function applyViewMode() {
     if (tournamentsEl) {
-        tournamentsEl.classList.toggle('compact-view', state.viewMode === 'compact' && !state.activeTournamentId);
-        tournamentsEl.classList.toggle('detail-view', state.viewMode !== 'compact' && !state.activeTournamentId);
-        tournamentsEl.classList.toggle('tournament-focus-view', Boolean(state.activeTournamentId));
+        tournamentsEl.classList.toggle('ar-compact', state.viewMode === 'compact' && !state.activeTournamentId);
+        tournamentsEl.classList.toggle('ar-focus', Boolean(state.activeTournamentId));
     }
     if (!viewModeToggleEl) return;
     viewModeToggleEl.hidden = Boolean(state.activeTournamentId);
@@ -141,10 +156,10 @@ function statusText(match) {
 }
 
 function matchScore(match) {
-    if (match.status !== 'finished') return '<span class="archive-vs">VS</span>';
+    if (match.status !== 'finished') return '<span class="ar-vs">VS</span>';
     const team1Won = match.team1_score > match.team2_score;
     const team2Won = match.team2_score > match.team1_score;
-    return `<strong class="archive-scorebox"><span class="${team1Won ? 'winner' : ''}">${match.team1_score}</span><em>:</em><span class="${team2Won ? 'winner' : ''}">${match.team2_score}</span></strong>`;
+    return `<strong class="ar-score"><span class="${team1Won ? 'winner' : ''}">${match.team1_score}</span><em>:</em><span class="${team2Won ? 'winner' : ''}">${match.team2_score}</span></strong>`;
 }
 
 function teamBlock(match, side) {
@@ -157,12 +172,11 @@ function teamBlock(match, side) {
     const tbd = name === 'TBD';
     const tag = tbd ? 'div' : 'a';
     const href = tbd ? '' : ` href="/teams.html?team=${match[`${prefix}_id`]}" onclick="event.stopPropagation()"`;
-    return `<${tag} class="archive-team team-link ${won ? 'winner' : ''} ${tbd ? 'tbd-team' : ''}"${href}>
+    return `<${tag} class="ar-team ${won ? 'winner' : ''} ${tbd ? 'tbd-team' : ''}"${href} title="${escapeHtml(name)}">
         ${logoHtml(logo, darkLogo)}
         <div><strong>${escapeHtml(shortName)}</strong><small>${escapeHtml(name)}</small></div>
     </${tag}>`;
 }
-
 
 function matchRow(match) {
     const clickable = match.status === 'finished';
@@ -171,24 +185,24 @@ function matchRow(match) {
     // 已结算：预测详情 + 对阵历史（近况/交手已按该场开赛前过滤，呈现赛前视角）；
     // 未开赛且队伍已定：对阵历史。
     const action = clickable
-        ? `<b>查看预测详情</b><button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button>`
+        ? `<b class="ar-action">查看预测</b><button class="link-btn h2h-trigger" onclick="event.stopPropagation(); showMatchHead2Head(${match.id})">对阵历史</button>`
         : tbd
             ? '<b class="muted">等待队伍产生</b>'
             : `<button class="link-btn h2h-trigger" onclick="showMatchHead2Head(${match.id})">对阵历史</button>`;
-    return `<article class="archive-match-v2 tournament-match-row ${clickable ? 'clickable' : ''} ${tbd ? 'tbd-match' : ''}" id="match-row-${match.id}" data-match-id="${match.id}" ${clickable ? `onclick="showMatchPredictions(${match.id})"` : ''}>
-        <div class="archive-match-main">
-            <div class="archive-match-info">
-                <span class="archive-status ${match.is_forfeit ? 'forfeit' : tbd ? 'tbd' : match.status}">${tbd ? '对阵待定' : statusText(match)}</span>
+    return `<article class="ar-match ${clickable ? 'clickable' : ''} ${tbd ? 'tbd-match' : ''}" id="match-row-${match.id}" data-match-id="${match.id}" ${clickable ? `onclick="showMatchPredictions(${match.id})"` : ''}>
+        <div class="ar-match-main">
+            <div class="ar-match-info">
+                <span class="ar-status ${match.is_forfeit ? 'forfeit' : tbd ? 'tbd' : match.status}">${tbd ? '对阵待定' : statusText(match)}</span>
                 <strong>${escapeHtml(title)}</strong>
                 <small>${formatDateTime(match.match_time)}</small>
             </div>
-            <div class="archive-matchup-v2">
+            <div class="ar-matchup">
                 ${teamBlock(match, 1)}
-                <div class="archive-score-wrap">${matchScore(match)}</div>
+                <div class="ar-score-wrap">${matchScore(match)}</div>
                 ${teamBlock(match, 2)}
             </div>
         </div>
-        <div class="archive-match-meta">
+        <div class="ar-match-meta">
             <span>${escapeHtml(match.format || 'BO?')}</span>
             <span>${match.prediction_count || 0} 人预测</span>
             <span>${match.correct_prediction_count || 0} 人得分</span>
@@ -214,7 +228,7 @@ function roundSection(group) {
     const rows = group.matches || [];
     return `<div class="tournament-round-block">
         <div class="tournament-round-head"><h4>${escapeHtml(group.label)}</h4><span>${stageSubtitle(group.matches)}</span></div>
-        <div class="archive-match-list">${rows.map(matchRow).join('')}</div>
+        <div class="ar-match-list">${rows.map(matchRow).join('')}</div>
     </div>`;
 }
 
@@ -248,10 +262,11 @@ function stageSection(group, index = 0) {
         ${head}
         <div class="tournament-stage-content">
             ${stageDiagram(group)}
-            <div class="archive-match-list">${(group.matches || []).map(matchRow).join('')}</div>
+            <div class="ar-match-list">${(group.matches || []).map(matchRow).join('')}</div>
         </div>
     </details>`;
 }
+
 // 赛事级别徽章：高级金色、低级灰色、普通不显示。
 // 文字优先取名称中命中的关键词（中英文同义，与 server/services/tournamentTier.js 规则一致），
 // 手动设置级别但名称无关键词时按游戏给默认词。
@@ -269,6 +284,17 @@ function tierBadge(tournament) {
     return '';
 }
 
+// 无上传 logo 时用字母徽标兜底（回看列表里绝大多数赛事只有名称）
+function tournamentMark(tournament) {
+    const name = String(tournament.short_name || tournament.name || '').trim();
+    const letters = name.replace(/[^A-Za-z0-9一-龥]/g, '').slice(0, 2).toUpperCase() || '?';
+    return `<span class="ar-mark ${tournament.game_type}">${escapeHtml(letters)}</span>`;
+}
+
+function tournamentLogoHtml(tournament) {
+    return tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url) || tournamentMark(tournament);
+}
+
 function tournamentCard(tournament) {
     const finished = tournament.finished_count || 0;
     const total = tournament.match_count || 0;
@@ -276,25 +302,31 @@ function tournamentCard(tournament) {
     const ongoing = tournament.ongoing_count || 0;
     const upcoming = tournament.upcoming_count || 0;
     const isDone = total > 0 && finished >= total;
-    const status = isDone ? '已结束' : '进行中';
     const progress = total ? Math.round((finished / total) * 100) : 0;
-    return `<article class="tournament-card archive-tournament panel ${tournament.game_type}" data-id="${tournament.id}" onclick="openTournamentPage(${tournament.id})">
-        <div class="tournament-card-head archive-tournament-head">
-            <div class="archive-tournament-title">
-                <div>${tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url)}<span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>${tierBadge(tournament)}<span class="archive-tournament-state ${ongoing ? 'live' : ''}">${ongoing ? `<i class="live-dot"></i>${ongoing} 场进行中` : status}</span></div>
+    const stateLabel = ongoing ? '进行中' : isDone ? '已结束' : '筹备中';
+    const stateClass = ongoing ? 'live' : isDone ? 'done' : 'wait';
+    return `<article class="ar-card ${tournament.game_type} ${stateClass}" data-id="${tournament.id}" onclick="openTournamentPage(${tournament.id})" tabindex="0" role="button" aria-label="查看 ${escapeHtml(tournament.name)}">
+        <div class="ar-card-logo">${tournamentLogoHtml(tournament)}</div>
+        <div class="ar-card-body">
+            <div class="ar-card-title">
                 <h2 title="${escapeHtml(tournament.name)}">${tournamentNameHtml(tournament.name, tournament.short_name)}</h2>
-                <p>${formatDateTime(tournament.begin_at)}${tournament.end_at ? ` - ${formatDateTime(tournament.end_at)}` : ''}</p>
+                <span class="ar-state ${stateClass}">${ongoing ? `<i class="ar-live-dot"></i>${ongoing} 场进行中` : stateLabel}</span>
             </div>
-            <span class="archive-open" aria-hidden="true">›</span>
+            <p class="ar-card-meta">
+                <span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>
+                ${tierBadge(tournament)}
+                <span>${formatDateTime(tournament.begin_at)}${tournament.end_at ? ` - ${formatDateTime(tournament.end_at)}` : ''}</span>
+            </p>
+            <div class="ar-progress" title="完成 ${progress}%"><i style="width:${progress}%"></i></div>
+            <div class="ar-card-stats">
+                <span><b>${total}</b>比赛</span>
+                <span><b>${finished}</b>已结算</span>
+                ${upcoming ? `<span><b>${upcoming}</b>待开始</span>` : ''}
+                <span><b>${predictions}</b>人次预测</span>
+                <span class="ar-pct">${progress}%</span>
+            </div>
         </div>
-        <div class="tournament-stats archive-tournament-stats">
-            <span><b>${total}</b>比赛</span>
-            <span><b>${finished}</b>已结束</span>
-            <span><b>${upcoming}</b>待开始</span>
-            <span><b>${predictions}</b>人次预测</span>
-            <span><b>${progress}%</b>完成</span>
-        </div>
-        <div class="tournament-progress ${isDone ? 'done' : ongoing ? 'live' : ''}"><i style="width:${progress}%"></i></div>
+        <span class="ar-open" aria-hidden="true">›</span>
     </article>`;
 }
 
@@ -310,27 +342,27 @@ function tournamentDetailPage(data) {
     const integrityNotice = stageTotal === matches.length
         ? ''
         : `<div class="bracket-integrity-warning">赛程数据不完整：已归类 ${stageTotal}/${matches.length} 场</div>`;
-    return `<section class="tournament-focus panel">
-        <button class="button ghost tournament-back" onclick="backToTournamentList()">返回赛事列表</button>
-        <div class="tournament-focus-head ${tournament.game_type}">
-            <div>
-                ${tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url)}
-                <span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>${tierBadge(tournament)}
-                <h2 title="${escapeHtml(tournament.name)}">${tournamentNameHtml(tournament.name, tournament.short_name)}</h2>
-                <p>${formatDateTime(tournament.begin_at)} ${tournament.end_at ? `- ${formatDateTime(tournament.end_at)}` : ''}</p>
+    return `<section class="ar-focus">
+        <header class="ar-focus-head ${tournament.game_type}">
+            <button class="ar-back" onclick="backToTournamentList()">‹ 返回赛事列表</button>
+            <div class="ar-focus-id">
+                <span class="ar-focus-logo">${tournamentLogoHtml(tournament)}</span>
+                <div class="ar-focus-text">
+                    <div class="ar-focus-tags"><span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>${tierBadge(tournament)}<span>${formatDateTime(tournament.begin_at)}${tournament.end_at ? ` - ${formatDateTime(tournament.end_at)}` : ''}</span></div>
+                    <h2 title="${escapeHtml(tournament.name)}">${tournamentNameHtml(tournament.name, tournament.short_name)}</h2>
+                </div>
             </div>
-            <div class="tournament-focus-stats">
-                <span><b>${total}</b>比赛</span>
-                <span class="stat-done"><b>${finished}</b>已结算</span>
-                <span><b>${predictions}</b>预测</span>
-            </div>
-        </div>
+            <dl class="ar-focus-stats">
+                <div><dt>比赛</dt><dd>${total}</dd></div>
+                <div><dt>已结算</dt><dd>${finished}</dd></div>
+                <div><dt>预测人次</dt><dd>${predictions}</dd></div>
+            </dl>
+        </header>
         ${integrityNotice}
         ${stageMap(stages)}
-        <div class="tournament-stage-list">${stages.map(stageSection).join('') || '<div class="empty-state"><h3>暂无比赛</h3></div>'}</div>
+        <div class="ar-focus-stages">${stages.map(stageSection).join('') || '<div class="ar-empty"><h3>暂无比赛</h3></div>'}</div>
     </section>`;
 }
-
 
 let lastBracketCompactMode = isCompactBracketViewport();
 window.addEventListener('resize', () => {
@@ -344,14 +376,14 @@ async function openTournamentPage(id) {
     state.activeTournamentId = String(id);
     updateTournamentUrl();
     applyViewMode();
-    tournamentsEl.innerHTML = '<div class="loading-text">加载赛事详情...</div>';
+    tournamentsEl.innerHTML = '<div class="ar-loading">加载赛事详情...</div>';
     try {
         const data = await sharedApi(`/tournaments/${id}`);
         tournamentsEl.innerHTML = tournamentDetailPage(data);
         const matchAnchor = location.hash.match(/^#match-row-(\d+)$/);
         if (matchAnchor) requestAnimationFrame(() => focusTournamentMatch(matchAnchor[1]));
     } catch (error) {
-        tournamentsEl.innerHTML = `<div class="empty-state"><h3>加载失败</h3><p>${escapeHtml(error.message)}</p><button onclick="backToTournamentList()">返回赛事列表</button></div>`;
+        tournamentsEl.innerHTML = `<div class="ar-empty"><h3>加载失败</h3><p>${escapeHtml(error.message)}</p><button onclick="backToTournamentList()">返回赛事列表</button></div>`;
     }
 }
 
@@ -403,7 +435,8 @@ async function loadTournaments() {
         await openTournamentPage(state.activeTournamentId);
         return;
     }
-    tournamentsEl.innerHTML = '<div class="loading-text">加载赛事中...</div>';
+    syncGameSeg();
+    tournamentsEl.innerHTML = '<div class="ar-loading">加载赛事中...</div>';
     const status = statusFilterEl?.value || '';
     const params = new URLSearchParams();
     if (state.game) params.set('game_type', state.game);
@@ -443,18 +476,19 @@ window.focusTournamentMatch = focusTournamentMatch;
 window.openTournamentStage = openTournamentStage;
 window.closeDetailModal = closeDetailModal;
 
-loadTournaments().catch(error => {
-    if (tournamentsEl) tournamentsEl.innerHTML = `<div class="empty-state"><h3>加载失败</h3><p>${escapeHtml(error.message)}</p></div>`;
-    console.error(error);
+// 游戏分段按钮：切换后重置厂牌并重新拉取
+gameSegEl?.addEventListener('click', event => {
+    const button = event.target.closest('button[data-game]');
+    if (button) setGame(button.dataset.game);
+});
+// 搜索：对已加载列表做本地过滤，无需重新请求
+searchEl?.addEventListener('input', () => {
+    state.search = searchEl.value;
+    clearTimeout(searchEl._timer);
+    searchEl._timer = setTimeout(renderArchiveList, 140);
 });
 
-
-
-
-
-
-
-
-
-
-
+loadTournaments().catch(error => {
+    if (tournamentsEl) tournamentsEl.innerHTML = `<div class="ar-empty"><h3>加载失败</h3><p>${escapeHtml(error.message)}</p></div>`;
+    console.error(error);
+});

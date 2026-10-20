@@ -8,7 +8,6 @@ const NOT_TBD = "t.name <> 'TBD'";
 // 无比赛记录的队伍除"已赛最多/名称"外一律沉底。
 const TEAM_SORTS = {
     recent: 'CASE WHEN match_count > 0 THEN 0 ELSE 1 END, last_match_time DESC, t.name COLLATE NOCASE ASC',
-    win_rate: 'CASE WHEN match_count > 0 THEN 0 ELSE 1 END, CASE WHEN match_count > 0 THEN win_count * 100.0 / match_count ELSE 0 END DESC, win_count DESC, t.name COLLATE NOCASE ASC',
     wins: 'CASE WHEN match_count > 0 THEN 0 ELSE 1 END, win_count DESC, match_count ASC, t.name COLLATE NOCASE ASC',
     played: 'match_count DESC, last_match_time DESC, t.name COLLATE NOCASE ASC',
     name: 't.name COLLATE NOCASE ASC'

@@ -1,0 +1,363 @@
+/* ============================================================
+   队伍中心 / 赛事回看 —— 重做后的页面皮肤
+   沿用站点扁平电竞底子（2px 圆角、surface 变量、深底标题条），
+   只调整布局密度与信息层级；主题切换继续靠 :root / [data-theme=dark] 变量。
+   ============================================================ */
+
+/* ----------------------------------------------
+   队伍中心
+   ---------------------------------------------- */
+.th-page{max-width:1180px;padding:12px;
+    --th-win:var(--success-color);--th-loss:var(--danger-color);--th-pending:#7d8b9b;--th-forfeit:var(--warning-color)}
+
+/* 顶部工具条：搜索 → 游戏分段 → 排序/范围 → 计数 */
+.th-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;margin-bottom:10px;background:var(--surface-4);border:1px solid var(--border-color)}
+.th-search{position:relative;flex:1 1 220px;min-width:0;margin:0}
+.th-search svg{position:absolute;left:9px;top:50%;width:15px;height:15px;transform:translateY(-50%);color:var(--text-secondary);pointer-events:none}
+.th-search input{width:100%;min-width:0;padding:7px 10px 7px 30px;font-size:12px;font-weight:600;border-radius:2px;border-color:var(--border-strong);background:var(--surface-input);color:var(--text-primary)}
+.th-seg{display:inline-flex;gap:2px;padding:2px;background:var(--surface-input);border:1px solid var(--border-strong)}
+.th-seg button{width:auto;flex:0 0 auto;min-height:28px;padding:4px 13px;border:0;border-radius:0;background:transparent;color:var(--text-secondary);font-size:12px;font-weight:800;box-shadow:none}
+.th-seg button:hover{background:var(--surface-5);color:var(--text-primary);filter:none}
+.th-seg button.active{background:var(--primary-color);color:#fff}
+.th-seg button.active[data-game=valorant]{background:#ff4655}
+.th-selects{display:flex;gap:8px}
+.th-selects label{display:grid;grid-template-columns:auto minmax(96px,1fr);align-items:center;gap:6px;margin:0;color:var(--text-secondary);font-size:10px;font-weight:800;letter-spacing:.04em}
+.th-selects select{padding:6px 8px;font-size:12px;border-radius:2px;border-color:var(--border-strong);background:var(--surface-input);color:var(--text-primary)}
+.th-count{margin-left:auto;padding-right:2px;color:var(--text-secondary);font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* 卡片网格 */
+.th-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:8px}
+.th-card{position:relative;display:grid;grid-template-columns:56px minmax(0,1fr);gap:10px;padding:10px;background:var(--surface-input);border:1px solid var(--border-color);border-left:3px solid var(--primary-color);color:var(--text-primary);text-decoration:none;transition:border-color .15s ease,background-color .15s ease,box-shadow .15s ease}
+.th-card.valorant{border-left-color:#ff4655}
+.th-card:hover{border-color:var(--primary-color);background:var(--row-hover);box-shadow:0 2px 10px rgba(18,31,48,.10);transform:none}
+.th-card .game-pill{position:absolute;top:9px;right:9px;padding:1px 6px;font-size:9px;font-weight:800;border-radius:2px;letter-spacing:.04em}
+.th-card-logo{display:flex;align-items:center;justify-content:center;overflow:hidden;width:56px;height:56px;padding:5px;background:var(--surface-3);border:1px solid var(--border-soft);border-radius:2px}
+.th-card-logo img,.th-card-logo .placeholder{width:100%;height:100%;max-width:100%;max-height:100%;padding:0;object-fit:contain;border:0;background:transparent}
+.th-card-body{display:flex;flex-direction:column;gap:3px;min-width:0}
+.th-card-title{display:flex;align-items:center;gap:5px;min-width:0;padding-right:44px}
+.th-card-title strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:1.25;color:var(--text-heading)}
+.th-card-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary);font-size:10px;font-weight:700}
+.th-rate{display:block;height:3px;margin-top:3px;background:var(--surface-5);overflow:hidden}
+.th-rate i{display:block;height:100%;background:var(--th-win);transition:width .35s ease}
+.th-card-foot{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:2px;color:var(--text-secondary);font-size:10px;font-weight:700;font-variant-numeric:tabular-nums}
+.th-record b{font-size:12px;font-weight:900;color:var(--th-win)}
+.th-record b.loss{margin-left:3px;color:var(--th-loss)}
+.th-record b.loss::before{content:"/ ";color:var(--text-secondary);font-weight:700}
+.th-card-meta em{font-style:normal;white-space:nowrap}
+.th-card-meta em.th-upcoming{color:var(--pick-text);font-weight:900}
+
+.th-grid.th-enter .th-card{animation:thCardIn .22s ease both}
+@keyframes thCardIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.th-loading{padding:26px 0;text-align:center;color:var(--text-secondary);font-size:12px;font-weight:700;border:1px dashed var(--border-color);background:var(--surface-3)}
+.th-empty{padding:22px 14px;text-align:center;color:var(--text-secondary);font-size:12px;font-weight:700}
+.th-empty-lg{grid-column:1/-1;padding:44px 16px;border:1px dashed var(--border-color);background:var(--surface-3)}
+.th-empty-lg h3{margin:0 0 4px;font-size:15px;color:var(--text-heading)}
+.th-empty-lg p{margin:0 0 10px}
+.th-empty-lg .button{width:auto}
+
+/* 详情页 */
+.th-detail{display:grid;gap:8px}
+.th-hero{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;padding:12px;background:var(--surface-4);border:1px solid var(--border-color);border-top:3px solid var(--primary-color)}
+.th-hero.valorant{border-top-color:#ff4655}
+.th-back{grid-column:1/-1;justify-self:start;width:auto;min-height:0;padding:2px 0;border:0;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:800;box-shadow:none}
+.th-back:hover{color:var(--primary-color);background:transparent;filter:none;transform:none}
+.th-hero-id{display:flex;align-items:center;gap:12px;min-width:0}
+.th-hero-logo{display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto;width:66px;height:66px;padding:7px;background:var(--surface-input);border:1px solid var(--border-color);border-radius:2px}
+.th-hero-logo img,.th-hero-logo .placeholder{width:100%;height:100%;padding:0;object-fit:contain;border:0;background:transparent}
+.th-hero-text{min-width:0}
+.th-hero-tags{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px}
+.th-hero-tags .game-pill{padding:1px 6px;border-radius:2px;font-size:9px;font-weight:800}
+.th-short{color:var(--text-secondary);font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.th-hero-text h2{margin:3px 0 0;overflow-wrap:anywhere;font-size:22px;line-height:1.15;color:var(--text-heading)}
+
+/* 近期状态：最近 5 场结果 */
+.th-form{display:flex;align-items:center;gap:4px;margin-top:6px}
+.th-form-label{margin-right:4px;color:var(--text-secondary);font-size:10px;font-weight:800}
+.th-form-dot{display:grid;place-items:center;width:18px;height:18px;font-size:10px;font-weight:900;color:#fff;border-radius:2px}
+.th-form-dot.win{background:var(--th-win)}
+.th-form-dot.loss{background:var(--th-loss)}
+.th-form-dot.forfeit{background:var(--th-forfeit)}
+.th-form-dot.pending{background:var(--th-pending)}
+
+.th-hero-stats{display:grid;grid-template-columns:repeat(4,84px);gap:6px;margin:0}
+.th-hero-stats div{padding:7px 4px;background:var(--surface-input);border:1px solid var(--border-color);text-align:center}
+.th-hero-stats dt{color:var(--text-secondary);font-size:10px;font-weight:800;letter-spacing:.04em}
+.th-hero-stats dd{margin:1px 0 0;color:var(--text-primary);font-size:18px;font-weight:900;line-height:1.1;font-variant-numeric:tabular-nums}
+.th-hero-stats dd small{font-size:10px;font-weight:800;color:var(--text-secondary)}
+.th-hero-stats dd span{font-size:12px;color:var(--text-secondary)}
+
+/* 下一场比赛 */
+.th-next{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:8px 11px;background:var(--pick-bg);border:1px solid var(--border-strong);border-left:3px solid var(--primary-color);color:var(--text-primary);text-decoration:none;transition:filter .15s ease}
+.th-next:hover{filter:brightness(.98);background:var(--pick-bg)}
+.th-next-label{display:inline-flex;align-items:center;gap:5px;color:var(--pick-text);font-size:10px;font-weight:900;white-space:nowrap}
+.th-live-dot{width:6px;height:6px;border-radius:50%;background:var(--danger-color);box-shadow:0 0 0 3px rgba(200,79,79,.18)}
+.th-next-opp{display:flex;align-items:center;gap:8px;min-width:0}
+.th-next-opp img,.th-next-opp .placeholder{flex:0 0 auto;width:28px;height:28px;padding:2px;object-fit:contain;background:var(--surface-input);border:1px solid var(--border-soft);border-radius:2px}
+.th-next-opp span{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.th-next-opp strong,.th-next-opp small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.th-next-opp strong{font-size:13px;color:var(--text-heading)}
+.th-next-opp small{color:var(--text-secondary);font-size:10px;font-weight:700}
+.th-next-time{display:flex;flex-direction:column;align-items:flex-end;gap:1px;color:var(--text-secondary);font-size:11px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
+.th-next-time b{color:var(--pick-text);font-size:10px;letter-spacing:.04em}
+
+/* 两栏：比赛记录 + 赛事履历 */
+.th-columns{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:8px;align-items:start}
+.th-panel{min-width:0;background:var(--surface-input);border:1px solid var(--border-color)}
+.th-panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:7px 10px;background:var(--bracket-stage-head);color:var(--bracket-text)}
+.th-panel-head h3{margin:0;font-size:13px;line-height:1.2;color:#fff}
+.th-panel-head span{color:var(--bracket-text-muted);font-size:10px;font-weight:800}
+
+.th-match{display:grid;grid-template-columns:26px minmax(0,1fr) 58px auto;align-items:center;gap:9px;padding:7px 10px;border-bottom:1px solid var(--border-soft);transition:background-color .12s ease}
+.th-match:last-child{border-bottom:0}
+.th-match:hover{background:var(--row-hover)}
+.th-tag{display:grid;place-items:center;width:26px;height:20px;font-size:10px;font-weight:900;color:#fff;border-radius:2px}
+.th-tag.win{background:var(--th-win)}
+.th-tag.loss{background:var(--th-loss)}
+.th-tag.pending{background:var(--th-pending)}
+.th-tag.forfeit{background:var(--th-forfeit)}
+.th-match-opp{display:flex;align-items:center;gap:7px;min-width:0}
+.th-match-opp img,.th-match-opp .placeholder{flex:0 0 auto;width:24px;height:24px;padding:2px;object-fit:contain;background:var(--surface-input);border:1px solid var(--border-soft);border-radius:2px}
+.th-match-opp span{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.th-match-opp strong,.th-match-opp small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.th-match-opp strong{font-size:12px;color:var(--text-primary)}
+.th-match-opp small{color:var(--text-secondary);font-size:10px;font-weight:700}
+.th-score{display:flex;align-items:baseline;justify-content:center;gap:4px;color:var(--text-primary);font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
+.th-score em{font-style:normal;font-size:11px;color:var(--text-secondary)}
+.th-score b.win{color:var(--th-win)}
+.th-score b.loss{color:var(--text-secondary)}
+.th-match time{color:var(--text-secondary);font-size:10px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+.th-history{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 10px;padding:8px 10px;border-bottom:1px solid var(--border-soft)}
+.th-history:last-child{border-bottom:0}
+.th-history:hover{background:var(--row-hover)}
+.th-history-main{display:flex;flex-direction:column;min-width:0;line-height:1.25}
+.th-history-main strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-primary)}
+.th-history-main small{color:var(--text-secondary);font-size:10px;font-weight:700}
+.th-history-record{grid-column:1;display:flex;align-items:baseline;gap:3px;color:var(--text-secondary);font-size:10px;font-weight:800;font-variant-numeric:tabular-nums}
+.th-history-record b{font-size:12px;font-weight:900;color:var(--th-win)}
+.th-history-record small{margin-left:4px;color:var(--text-secondary)}
+.th-placement{grid-column:2;grid-row:1/3;align-self:center;padding:3px 7px;font-size:10px;font-weight:900;white-space:nowrap;border-radius:2px;background:var(--surface-5);color:var(--text-secondary)}
+.th-placement.place-1{background:rgba(227,179,65,.2);color:#8a6200}
+.th-placement.place-2{background:rgba(148,163,184,.24);color:#4b5b6c}
+.th-placement.place-3{background:rgba(184,124,72,.18);color:#8a5a2b}
+.th-placement.place-4{background:rgba(47,111,167,.12);color:var(--primary-color)}
+
+@media(max-width:920px){
+  .th-selects{width:100%;display:grid;grid-template-columns:1fr 1fr}
+  .th-count{margin-left:0}
+}
+@media(max-width:760px){
+  .th-page{padding:6px}
+  .th-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .th-card{display:flex;flex-direction:column;gap:5px;padding:8px 7px;border-left-width:2px}
+  .th-card-logo{flex:0 0 44px;width:100%;height:44px;min-height:0;padding:3px;overflow:hidden}
+  .th-card-body{display:contents}
+  .th-card-title{padding-right:0;flex-wrap:wrap;justify-content:space-between}
+  .th-card-title strong{font-size:13px}
+  .th-card-title .team-country{display:none}
+  .th-card-sub{display:none}
+  .th-card .game-pill{position:static;order:-1;align-self:flex-start}
+  .th-card-foot{font-size:9px;gap:4px}
+  .th-record b{font-size:11px}
+  .th-card-meta em{white-space:normal}
+  .th-hero{grid-template-columns:1fr;gap:10px;padding:10px}
+  .th-hero-logo{width:54px;height:54px}
+  .th-hero-text h2{font-size:18px}
+  .th-hero-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .th-hero-stats dd{font-size:16px}
+  .th-next{grid-template-columns:minmax(0,1fr) auto;gap:8px}
+  .th-next-label{grid-column:1/-1}
+  .th-columns{grid-template-columns:1fr}
+  .th-match{grid-template-columns:24px minmax(0,1fr) 50px;gap:7px;padding:7px 8px}
+  .th-match time{grid-column:2/-1;font-size:9px}
+}
+@media(max-width:420px){
+  .th-seg{width:100%}
+  .th-seg button{flex:1}
+  .th-selects{grid-template-columns:1fr}
+  .th-match-opp small{display:none}
+}
+
+html[data-theme=dark] .th-next{background:var(--surface-3)}
+html[data-theme=dark] .th-hero-stats div{background:var(--surface-2)}
+html[data-theme=dark] .th-placement.place-1{color:#e3b341}
+html[data-theme=dark] .th-placement.place-2{color:#c7d2de}
+html[data-theme=dark] .th-placement.place-3{color:#d99a63}
+html[data-theme=dark] .th-placement.place-4{color:var(--pick-text)}
+
+/* ----------------------------------------------
+   赛事回看
+   ---------------------------------------------- */
+.ar-page{max-width:1180px;padding:12px}
+
+/* 筛选条：游戏分段 / 搜索 / 状态 / 级别 / 视图切换 / 计数 + 厂牌 chips */
+.ar-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;margin-bottom:10px;background:var(--surface-4);border:1px solid var(--border-color)}
+.ar-seg{display:inline-flex;gap:2px;padding:2px;background:var(--surface-input);border:1px solid var(--border-strong)}
+.ar-seg button{width:auto;flex:0 0 auto;min-height:28px;padding:4px 13px;border:0;border-radius:0;background:transparent;color:var(--text-secondary);font-size:12px;font-weight:800;box-shadow:none}
+.ar-seg button:hover{background:var(--surface-5);color:var(--text-primary);filter:none}
+.ar-seg button.active{background:var(--primary-color);color:#fff}
+.ar-seg button.active[data-game=valorant]{background:#ff4655}
+.ar-search{position:relative;flex:1 1 180px;min-width:140px;margin:0}
+.ar-search svg{position:absolute;left:9px;top:50%;width:15px;height:15px;transform:translateY(-50%);color:var(--text-secondary);pointer-events:none}
+.ar-search input{width:100%;min-width:0;padding:7px 10px 7px 30px;font-size:12px;font-weight:600;border-radius:2px;border-color:var(--border-strong);background:var(--surface-input);color:var(--text-primary)}
+.ar-field{display:grid;grid-template-columns:auto minmax(82px,1fr);align-items:center;gap:6px;margin:0;color:var(--text-secondary);font-size:10px;font-weight:800;letter-spacing:.04em}
+.ar-field select{padding:6px 8px;font-size:12px;border-radius:2px;border-color:var(--border-strong);background:var(--surface-input);color:var(--text-primary)}
+.ar-toggle{display:inline-flex;gap:2px;padding:2px;background:var(--surface-input);border:1px solid var(--border-strong)}
+.ar-toggle button{width:auto;flex:0 0 auto;min-height:28px;padding:4px 11px;border:0;border-radius:0;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:800;box-shadow:none}
+.ar-toggle button:hover{background:var(--surface-5);color:var(--text-primary);filter:none}
+.ar-toggle button.active{background:var(--primary-color);color:#fff}
+.ar-count{margin-left:auto;color:var(--text-secondary);font-size:11px;font-weight:800;white-space:nowrap}
+.ar-brands{flex-basis:100%;display:flex;flex-wrap:wrap;gap:5px;padding-top:7px;border-top:1px solid var(--border-soft)}
+.ar-chip{display:inline-flex;align-items:center;gap:6px;width:auto;flex:0 0 auto;padding:4px 10px;border:1px solid var(--border-strong);border-radius:2px;background:var(--surface-input);color:var(--text-secondary);font-size:11px;font-weight:800;box-shadow:none}
+.ar-chip b{padding:0 4px;background:var(--surface-4);color:var(--text-secondary);font-size:10px;font-variant-numeric:tabular-nums}
+.ar-chip:hover{border-color:var(--primary-color);color:var(--primary-color);background:var(--surface-input);filter:none;transform:none}
+.ar-chip.active{border-color:var(--primary-color);background:var(--pick-bg);color:var(--pick-text)}
+.ar-chip.active b{background:var(--primary-color);color:#fff}
+.ar-hint{flex-basis:100%;margin:0;color:var(--text-secondary);font-size:10px;font-weight:700;line-height:1.5}
+.ar-hint b{color:var(--text-primary);font-weight:900}
+
+/* 列表 */
+.ar-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.ar-empty{padding:44px 16px;text-align:center;color:var(--text-secondary);font-size:12px;border:1px dashed var(--border-color);background:var(--surface-3)}
+.ar-empty h3{margin:0 0 4px;font-size:15px;color:var(--text-heading)}
+.ar-empty p{margin:0 0 10px}
+.ar-empty .button{width:auto}
+.ar-loading{grid-column:1/-1;padding:28px 0;text-align:center;color:var(--text-secondary);font-size:12px;font-weight:700;border:1px dashed var(--border-color);background:var(--surface-3)}
+
+/* 卡片：左侧 logo，中间名称/元信息/进度，右侧展开箭头 */
+.ar-card{position:relative;display:grid;grid-template-columns:54px minmax(0,1fr) 16px;align-items:center;gap:10px;padding:10px;background:var(--surface-input);border:1px solid var(--border-color);border-left:3px solid var(--primary-color);cursor:pointer;transition:border-color .15s ease,background-color .15s ease,box-shadow .15s ease}
+.ar-card.valorant{border-left-color:#ff4655}
+.ar-card:hover,.ar-card:focus-visible{border-color:var(--primary-color);background:var(--row-hover);box-shadow:0 2px 10px rgba(18,31,48,.10);outline:none}
+.ar-card-logo{display:flex;align-items:center;justify-content:center;overflow:hidden;width:54px;height:54px;padding:5px;background:var(--surface-3);border:1px solid var(--border-soft);border-radius:2px}
+.ar-card-logo .tournament-logo{width:100%;height:100%;max-width:100%;max-height:100%;padding:0;border:0;background:transparent;object-fit:contain}
+.ar-card-body{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ar-card-title{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.ar-card-title h2{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:1.25;color:var(--text-heading)}
+.ar-card-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0;color:var(--text-secondary);font-size:10px;font-weight:700}
+.ar-card-meta .game-pill{padding:1px 6px;border-radius:2px;font-size:9px;font-weight:800}
+.ar-card-meta .tier-badge{padding:1px 5px;font-size:9px}
+.ar-state{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;padding:2px 7px;border-radius:2px;background:var(--surface-5);color:var(--text-secondary);font-size:10px;font-weight:900;white-space:nowrap}
+.ar-state.live{background:rgba(200,79,79,.12);color:#a93749}
+.ar-live-dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+.ar-progress{height:3px;background:var(--surface-5);overflow:hidden}
+.ar-progress i{display:block;height:100%;background:var(--success-color);transition:width .35s ease}
+.ar-card.wait .ar-progress i{background:var(--border-strong)}
+.ar-card-stats{display:flex;align-items:baseline;gap:12px;color:var(--text-secondary);font-size:10px;font-weight:700;font-variant-numeric:tabular-nums}
+.ar-card-stats b{margin-right:2px;color:var(--text-primary);font-size:12px;font-weight:900}
+.ar-card-stats .ar-pct{margin-left:auto;color:var(--success-color);font-weight:900}
+.ar-card.wait .ar-card-stats .ar-pct{color:var(--text-secondary)}
+.ar-open{color:var(--text-secondary);font-size:20px;line-height:1;font-weight:700;transition:transform .15s ease,color .15s ease}
+.ar-card:hover .ar-open{color:var(--primary-color);transform:translateX(2px)}
+
+/* 紧凑视图：单行高度，隐藏进度与统计细节 */
+.ar-list.ar-compact{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ar-compact .ar-card{grid-template-columns:38px minmax(0,1fr) 14px;gap:8px;padding:7px 9px}
+.ar-compact .ar-card-logo{width:38px;height:38px;padding:3px}
+.ar-compact .ar-card-title h2{font-size:13px}
+.ar-compact .ar-progress,.ar-compact .ar-card-stats{display:none}
+
+/* 详情页 */
+.ar-list.ar-focus{grid-template-columns:minmax(0,1fr)}
+.ar-focus{background:var(--surface-1);border:1px solid var(--border-color);min-width:0}
+.ar-focus-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 12px;background:var(--surface-4);border-bottom:1px solid var(--border-color);border-top:3px solid var(--primary-color)}
+.ar-focus-head.valorant{border-top-color:#ff4655}
+.ar-back{grid-column:1/-1;justify-self:start;width:auto;min-height:0;padding:2px 0;border:0;background:transparent;color:var(--text-secondary);font-size:11px;font-weight:800;box-shadow:none}
+.ar-back:hover{color:var(--primary-color);background:transparent;filter:none;transform:none}
+.ar-focus-id{display:flex;align-items:center;gap:12px;min-width:0}
+.ar-focus-logo{display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto;width:58px;height:58px;padding:6px;background:var(--surface-input);border:1px solid var(--border-color);border-radius:2px}
+.ar-focus-logo .tournament-logo{width:100%;height:100%;max-width:100%;max-height:100%;padding:0;border:0;background:transparent;object-fit:contain}
+/* 黑色赛事 logo 在暗色底上几乎不可见：由 tournament-logos.js 采样亮度后加类自动反色 */
+html[data-theme=dark] .ar-card-logo .tournament-logo.tournament-logo-invert,
+html[data-theme=dark] .ar-focus-logo .tournament-logo.tournament-logo-invert{filter:invert(1) hue-rotate(180deg)}
+.ar-focus-text{min-width:0}
+.ar-focus-tags{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--text-secondary);font-size:10px;font-weight:700}
+.ar-focus-tags .game-pill{padding:1px 6px;border-radius:2px;font-size:9px;font-weight:800}
+.ar-focus-text h2{margin:3px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:20px;line-height:1.2;color:var(--text-heading)}
+.ar-focus-stats{display:grid;grid-template-columns:repeat(3,84px);gap:6px;margin:0}
+.ar-focus-stats div{padding:6px 4px;background:var(--surface-input);border:1px solid var(--border-color);text-align:center}
+.ar-focus-stats dt{color:var(--text-secondary);font-size:10px;font-weight:800}
+.ar-focus-stats dd{margin:1px 0 0;color:var(--text-primary);font-size:17px;font-weight:900;line-height:1.1;font-variant-numeric:tabular-nums}
+.ar-focus-stages{display:grid;gap:8px;padding:8px}
+.ar-focus .tournament-stage-block{border:1px solid var(--border-color)}
+.ar-focus .tournament-stage-head{background:var(--bracket-stage-head)}
+.ar-focus .tournament-round-list{padding:8px;background:var(--surface-3)}
+.ar-focus .tournament-round-block{border:1px solid var(--border-color);background:var(--surface-input)}
+.ar-focus .tournament-round-head{padding:6px 9px;background:var(--surface-4)}
+.ar-focus .tournament-stage-map{background:var(--surface-input)}
+
+/* 阶段内比赛行 */
+.ar-match-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--border-soft)}
+.ar-match{display:grid;grid-template-columns:minmax(0,1fr);background:var(--surface-input);transition:background-color .12s ease}
+.ar-match.clickable{cursor:pointer}
+.ar-match.clickable:hover{background:var(--row-hover)}
+.ar-match-main{display:grid;grid-template-columns:132px minmax(0,1fr);align-items:center;gap:8px;padding:6px 8px}
+.ar-match-info{display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:0}
+.ar-match-info strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;font-size:11px;color:var(--text-primary)}
+.ar-match-info small{color:var(--text-secondary);font-size:10px;font-weight:700;font-variant-numeric:tabular-nums}
+.ar-status{padding:1px 5px;border-radius:2px;background:var(--surface-5);color:var(--text-secondary);font-size:9px;font-weight:900}
+.ar-status.ongoing{background:rgba(200,79,79,.12);color:#a93749}
+.ar-status.upcoming{background:var(--pick-bg);color:var(--pick-text)}
+.ar-status.forfeit{background:rgba(199,148,53,.14);color:#8a6200}
+.ar-status.tbd{background:var(--surface-5);color:var(--text-secondary)}
+.ar-matchup{display:grid;grid-template-columns:minmax(0,1fr) 46px minmax(0,1fr);align-items:center;gap:5px;min-width:0}
+.ar-team{display:flex;align-items:center;gap:5px;min-width:0;color:var(--text-primary);text-decoration:none}
+.ar-team img,.ar-team .placeholder{flex:0 0 auto;width:24px;height:24px;padding:2px;object-fit:contain;background:var(--surface-input);border:1px solid var(--border-soft);border-radius:2px}
+.ar-team div{min-width:0;line-height:1.25}
+.ar-team strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:700}
+.ar-team small{display:none}
+.ar-team.winner strong{color:var(--success-color);font-weight:900}
+.ar-team.tbd-team{opacity:.7}
+.ar-score-wrap{text-align:center}
+.ar-score{display:inline-flex;align-items:baseline;gap:3px;color:var(--text-secondary);font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
+.ar-score em{font-style:normal;font-size:10px}
+.ar-score .winner{color:var(--text-primary)}
+.ar-vs{color:var(--text-secondary);font-size:10px;font-weight:900;letter-spacing:.08em}
+.ar-match-meta{display:flex;align-items:center;gap:8px;padding:3px 8px;background:var(--surface-3);border-top:1px solid var(--border-soft);color:var(--text-secondary);font-size:10px;font-weight:700}
+.ar-match-meta span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ar-match-meta .ar-action{margin-left:auto;color:var(--primary-color);font-size:10px;font-weight:900}
+.ar-match-meta .h2h-trigger{width:auto;min-height:0;margin-left:auto;padding:0;border:0;background:transparent;color:var(--primary-color);font-size:10px;font-weight:900;box-shadow:none}
+.ar-match-meta .ar-action + .h2h-trigger{margin-left:0}
+.ar-match-meta .h2h-trigger:hover{background:transparent;text-decoration:underline;filter:none;transform:none}
+.ar-match-meta .muted{color:var(--text-secondary)}
+
+@media(max-width:920px){
+  .ar-list,.ar-list.ar-compact{grid-template-columns:1fr}
+  .ar-count{margin-left:0}
+  .ar-focus-head{grid-template-columns:1fr}
+  .ar-focus-stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:760px){
+  .ar-page{padding:6px}
+  .ar-search{flex-basis:100%;order:2}
+  .ar-card{grid-template-columns:44px minmax(0,1fr) 14px;gap:8px;padding:8px}
+  .ar-card-logo{width:44px;height:44px;padding:4px}
+  .ar-card-title h2{font-size:13px}
+  .ar-card-stats{gap:8px}
+  .ar-card-stats span:nth-child(3){display:none}
+  .ar-focus-head{padding:9px}
+  .ar-focus-logo{width:46px;height:46px}
+  .ar-focus-text h2{font-size:16px}
+  .ar-focus-stages{padding:6px;gap:6px}
+  .ar-match-list{grid-template-columns:1fr}
+  .ar-match-main{grid-template-columns:1fr;gap:4px;padding:7px 8px}
+  .ar-match-info{flex-direction:row;align-items:center;gap:6px;flex-wrap:wrap}
+  .ar-matchup{grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr)}
+  .ar-team img,.ar-team .placeholder{width:22px;height:22px}
+  .ar-match-meta{gap:7px;font-size:9px}
+}
+@media(max-width:420px){
+  .ar-seg{width:100%}
+  .ar-seg button{flex:1}
+  .ar-field{grid-template-columns:1fr}
+  .ar-toggle{width:100%;display:grid;grid-template-columns:1fr 1fr}
+  .ar-toggle button{width:100%}
+}
+
+html[data-theme=dark] .ar-state.live,html[data-theme=dark] .ar-status.ongoing{color:#e8899a}
+html[data-theme=dark] .ar-status.forfeit{color:#e0a458}
+html[data-theme=dark] .ar-card-logo,html[data-theme=dark] .ar-focus-logo{background:var(--surface-2)}
+html[data-theme=dark] .ar-state.live{background:rgba(232,137,154,.14)}
+
+/* 无赛事 logo 时的字母 / 品牌徽标 */
+.ar-mark{display:grid;place-items:center;width:100%;height:100%;background:var(--surface-5);color:var(--text-secondary);font-size:18px;font-weight:900;letter-spacing:.02em;line-height:1}
+.ar-mark.valorant{color:#ff4655}
