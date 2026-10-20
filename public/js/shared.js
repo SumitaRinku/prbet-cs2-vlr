@@ -27,10 +27,16 @@ function renderSharedUser() {
     const toggle = document.getElementById('themeToggle');
     if (!sharedState.user) {
         el.innerHTML = `
-            <input id="username" placeholder="用户名">
-            <input id="password" placeholder="密码" type="password">
-            <button onclick="sharedLogin()">登录</button>
-            <button onclick="sharedRegister()">注册</button>
+            <form class="auth-form" onsubmit="event.preventDefault();sharedLogin()">
+                <div class="auth-fields">
+                    <input id="username" placeholder="用户名" autocomplete="username">
+                    <input id="password" placeholder="密码" type="password" autocomplete="current-password">
+                </div>
+                <div class="auth-actions">
+                    <button type="submit">登录</button>
+                    <button type="button" class="ghost" onclick="sharedRegister()">注册</button>
+                </div>
+            </form>
         `;
         if (toggle) el.appendChild(toggle);
         return;

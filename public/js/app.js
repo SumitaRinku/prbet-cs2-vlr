@@ -81,10 +81,16 @@ function renderUser() {
     const toggle = document.getElementById('themeToggle');
     if (!state.user) {
         userPanelEl.innerHTML = `
-            <input id="username" placeholder="用户名">
-            <input id="password" placeholder="密码" type="password">
-            <button onclick="login()">登录</button>
-            <button onclick="register()">注册</button>
+            <form class="auth-form" onsubmit="event.preventDefault();login()">
+                <div class="auth-fields">
+                    <input id="username" placeholder="用户名" autocomplete="username">
+                    <input id="password" placeholder="密码" type="password" autocomplete="current-password">
+                </div>
+                <div class="auth-actions">
+                    <button type="submit">登录</button>
+                    <button type="button" class="ghost" onclick="register()">注册</button>
+                </div>
+            </form>
         `;
         if (toggle) userPanelEl.appendChild(toggle);
         return;
@@ -231,12 +237,11 @@ function isStaleUnsettled(match) {
     return new Date(match.match_time) <= new Date(Date.now() - 5 * 3600 * 1000);
 }
 
-// 赛前社区共识：仅展示聚合分布（≥3 人显示比例条，更少只显示人数）。
+// 赛前社区共识：仅展示聚合分布（≥3 人显示比例条）；人数统一由卡片页脚显示，避免重复。
 // 个人预测明细赛后才可见，赛前不存在抄作业。
 function consensusHtml(match) {
     const c = match.consensus;
-    if (!c || !c.total || match.display_status === 'finished' || match.status === 'finished') return '';
-    if (c.total < 3) return `<div class="consensus consensus-thin"><span>${c.total} 人已预测</span></div>`;
+    if (!c || c.total < 3 || match.display_status === 'finished' || match.status === 'finished') return '';
     const t1 = escapeHtml(match.team1_short_name || match.team1_name);
     const t2 = escapeHtml(match.team2_short_name || match.team2_name);
     return `<div class="consensus" title="赛前社区预测分布（${c.total} 人）">
@@ -324,6 +329,14 @@ async function loadMatches(opts = {}) {
     state.matches = data.matches || [];
     state.filterCounts = data.filters?.status_counts || { all: 0, finished: 0, ongoing: 0, upcoming: 0 };
     state.tournaments = data.filters?.tournaments || [];
+
+    // Handle data freshness indicator
+    if (data.meta && data.meta.isStale) {
+        showStalenessWarning(data.meta.warning);
+    } else {
+        hideStalenessWarning();
+    }
+
     const validTournament = !state.tournament || state.tournaments.some(tournament => String(tournament.id) === String(state.tournament));
     if (!validTournament) {
         state.tournament = '';
@@ -667,6 +680,32 @@ window.applyForfeit = applyForfeit;
 // 分享卡数据钩子：share.js 通过它取比赛数据与用户上下文（state 为模块作用域，不挂 window）
 window.getMatchForShare = matchId => state.matches.find(match => String(match.id) === String(matchId));
 window.getShareContext = () => ({ user: state.user });
+
+/**
+ * Show stale data warning banner
+ */
+function showStalenessWarning(message) {
+    const bannerId = 'staleness-warning';
+    let banner = document.getElementById(bannerId);
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = bannerId;
+        banner.className = 'staleness-warning';
+        document.body.insertBefore(banner, document.body.firstChild);
+    }
+    banner.innerHTML = `<strong>⚠️ ${message}</strong>`;
+    banner.style.display = 'block';
+}
+
+/**
+ * Hide stale data warning banner
+ */
+function hideStalenessWarning() {
+    const banner = document.getElementById('staleness-warning');
+    if (banner) {
+        banner.style.display = 'none';
+    }
+}
 
 // URL ?game= 直达：优先于本地记忆，保证分享/刷新后视图一致
 const urlGame = new URLSearchParams(location.search).get('game');

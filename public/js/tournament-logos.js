@@ -56,8 +56,55 @@ function tournamentLogo(name, gameType, logoUrl) {
     const src = (logoUrl && logoUrl.startsWith('/uploads/')) ? logoUrl : tournamentLogoUrl(name, gameType);
     if (!src) return '';
     const use = tournamentLogoSrc(src);
-    return `<img class="tournament-logo" src="${use}" data-light="${src}" data-try="${use}" data-variant="${use === src ? 'light' : 'dark'}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="tournamentLogoError(this)">`;
+    return `<img class="tournament-logo" src="${use}" data-light="${src}" data-try="${use}" data-variant="${use === src ? 'light' : 'dark'}" alt="" loading="lazy" referrerpolicy="no-referrer" onload="tournamentLogoLoaded(this)" onerror="tournamentLogoError(this)">`;
 }
+
+// ===== 深色 logo 暗色模式自动反色 =====
+// 赛事回看页的 logo 可能没有 -dark 变体（尤其是管理员上传的黑色 logo），
+// 在暗色底上几乎不可见。这里采样图片亮度，仅对「整体偏黑」的 logo 加反色类；
+// 采样结果写入 data-dark-logo，主题切换时直接复用，避免重复绘制。
+const DARK_LOGO_LUMINANCE = 96; // 0-255，低于该平均亮度视为黑色 logo
+
+function measureDarkLogo(img) {
+    if (!img.naturalWidth || !img.naturalHeight) return false;
+    try {
+        const size = 24;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, size, size);
+        const { data } = ctx.getImageData(0, 0, size, size);
+        let luminance = 0;
+        let weight = 0;
+        let lightWeight = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            const alpha = data[i + 3] / 255;
+            if (alpha < 0.15) continue; // 透明区域不参与统计
+            const value = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+            luminance += value * alpha;
+            weight += alpha;
+            if (value >= 160) lightWeight += alpha;
+        }
+        if (!weight || lightWeight / weight >= 0.15) return false; // 已有亮色元素则无需反色
+        return luminance / weight < DARK_LOGO_LUMINANCE;
+    } catch (error) {
+        return false; // 跨域或解码失败：保持原样
+    }
+}
+
+function applyTournamentLogoInvert(img) {
+    if (img.dataset.darkLogo === undefined && img.complete && img.naturalWidth) {
+        img.dataset.darkLogo = measureDarkLogo(img) ? '1' : '0';
+    }
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    img.classList.toggle('tournament-logo-invert', dark && img.dataset.darkLogo === '1');
+}
+
+function tournamentLogoLoaded(img) {
+    applyTournamentLogoInvert(img);
+}
+window.tournamentLogoLoaded = tournamentLogoLoaded;
 
 // -dark 变体 404 时回退原图；原图也失败则移除（与旧行为一致）
 function tournamentLogoError(img) {
@@ -67,6 +114,9 @@ function tournamentLogoError(img) {
     darkVariantMissing.add(img.dataset.try);
     img.dataset.try = light;
     img.dataset.variant = 'light';
+    // 换源后重新采样亮度，避免沿用上一张图的判断结果
+    delete img.dataset.darkLogo;
+    img.classList.remove('tournament-logo-invert');
     img.src = light;
 }
 window.tournamentLogoError = tournamentLogoError;
@@ -78,11 +128,16 @@ function applyTournamentLogoTheme() {
         const light = img.dataset.light;
         const darkPath = darkVariantPath(light);
         const want = dark && light.startsWith('/images/tournament/') && !darkVariantMissing.has(darkPath) ? darkPath : light;
-        if (want === img.dataset.try) return;
-        img.onerror = tournamentLogoError;
-        img.dataset.try = want;
-        img.dataset.variant = want === light ? 'light' : 'dark';
-        img.src = want;
+        if (want !== img.dataset.try) {
+            img.onerror = tournamentLogoError;
+            img.dataset.try = want;
+            img.dataset.variant = want === light ? 'light' : 'dark';
+            // 换源后亮度可能完全不同（如 -dark 白色变体），需重新采样
+            delete img.dataset.darkLogo;
+            img.classList.remove('tournament-logo-invert');
+            img.src = want;
+        }
+        applyTournamentLogoInvert(img);
     });
     applyTeamLogoTheme(dark);
 }
