@@ -3,197 +3,88 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>PRG 管理后台</title>
+    <title>管理后台 - PRBET</title>
     <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
     <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/admin.css">
     <!-- 主题脚本置于 head 内同步执行：首帧渲染前写入 data-theme，避免暗色模式下页面闪白 -->
     <script src="/js/theme.js"></script>
 </head>
-<body>
+<body class="ad-body">
     <header class="hero compact">
         <nav>
             <a class="brand-logo" href="/" aria-label="PRBET 首页"><img src="/images/prbetlogo.png" alt="PRBET"></a>
+            <div class="site-nav">
+                <a href="/">比赛竞猜</a>
+                <a href="/tournaments.html">赛事回看</a>
+                <a href="/teams.html">队伍中心</a>
+                <a href="/leaderboard.html">排行榜</a>
+                <a class="active" href="/admin/">管理后台</a>
+            </div>
             <div id="auth"></div>
         </nav>
     </header>
 
-    <main class="admin-shell">
-        <div class="admin-layout">
-            <aside class="admin-side panel">
-                <div class="admin-side-head">
+    <main class="ad-shell">
+        <!-- 未登录 / 非管理员时显示 -->
+        <section id="adGate" class="ad-gate" hidden></section>
+
+        <div id="adApp" class="ad-app" hidden>
+            <aside class="ad-side">
+                <div class="ad-side-head">
                     <p class="eyebrow">Admin Console</p>
                     <h2>管理后台</h2>
                 </div>
-                <nav class="admin-nav" id="adminNav">
-                    <button data-tab="matches" class="active" onclick="showTab('matches')">比赛</button>
-                    <button data-tab="tournaments" onclick="showTab('tournaments')">赛事</button>
-                    <button data-tab="teams" onclick="showTab('teams')">队伍</button>
-                    <button data-tab="users" onclick="showTab('users')">用户</button>
-                    <button data-tab="predictions" onclick="showTab('predictions')">预测记录</button>
+                <nav class="ad-nav" id="adNav" aria-label="后台导航">
+                    <button type="button" data-tab="overview">概览</button>
+                    <button type="button" data-tab="matches">比赛<b data-count="matches"></b></button>
+                    <button type="button" data-tab="tournaments">赛事<b data-count="tournaments"></b></button>
+                    <button type="button" data-tab="teams">队伍<b data-count="teams"></b></button>
+                    <button type="button" data-tab="users">用户<b data-count="users"></b></button>
+                    <button type="button" data-tab="predictions">预测记录<b data-count="predictions"></b></button>
                 </nav>
-                <div class="admin-side-foot">
-                    <label>游戏筛选</label>
-                    <select id="gameFilter" onchange="setGame(this.value)">
-                        <option value="">全部</option>
-                        <option value="cs2">CS2</option>
-                        <option value="valorant">Valorant</option>
-                    </select>
-                    <button onclick="syncNow()">同步赛事数据</button>
-                    <a class="button ghost" href="/">返回首页</a>
+                <div class="ad-side-foot">
+                    <span class="ad-side-label">游戏</span>
+                    <div id="adGameSeg" class="ad-seg" role="group" aria-label="游戏筛选">
+                        <button type="button" data-game="">全部</button>
+                        <button type="button" data-game="cs2">CS2</button>
+                        <button type="button" data-game="valorant">VAL</button>
+                    </div>
                 </div>
             </aside>
 
-            <div class="admin-main">
-                <section class="panel admin-stats-panel">
-                    <div class="section-head">
-                        <h2>系统统计</h2>
-                        <span id="syncBadge" class="admin-sync-badge"></span>
-                    </div>
-                    <div id="stats" class="stats"></div>
-                    <div id="syncInfo" class="admin-sync-info" hidden></div>
-                </section>
-
-                <section id="tab-matches" class="panel admin-tab active">
-                    <div class="section-head"><h2>比赛管理</h2><button onclick="toggleCreateForm('matchCreate')">新增比赛</button></div>
-                    <details id="matchCreate" class="admin-create">
-                        <summary>新增比赛</summary>
-                        <div class="form-grid">
-                            <select id="matchTournament"></select>
-                            <select id="matchTeam1"></select>
-                            <select id="matchTeam2"></select>
-                            <select id="matchFormat"><option>BO1</option><option selected>BO3</option><option>BO5</option></select>
-                            <input id="matchTime" type="datetime-local">
-                            <input id="matchName" placeholder="比赛备注/阶段">
-                        </div>
-                        <div class="admin-create-foot"><button onclick="createMatch()">创建比赛</button></div>
-                    </details>
-                    <div class="admin-subtitle">筛选比赛</div>
-                    <div class="form-grid admin-filter-bar">
-                        <select id="filterMatchTournament" onchange="applyAdminFilters()"><option value="">全部赛事</option></select>
-                        <select id="filterMatchStatus" onchange="applyAdminFilters()">
-                            <option value="">全部状态</option>
-                            <option value="upcoming">未开始</option>
-                            <option value="ongoing">进行中</option>
-                            <option value="finished">已结算</option>
-                            <option value="cancelled">已取消</option>
-                            <option value="postponed">已延期</option>
-                        </select>
-                        <select id="filterMatchBetting" onchange="applyAdminFilters()">
-                            <option value="">全部预测状态</option>
-                            <option value="1">预测开启</option>
-                            <option value="0">预测关闭</option>
-                        </select>
-                    </div>
-                    <div class="table-wrap"><table><thead><tr><th>ID</th><th>游戏</th><th>赛事</th><th>对阵</th><th>赛制</th><th>时间</th><th>状态</th><th>比分</th><th>操作</th></tr></thead><tbody id="matches"></tbody></table></div>
-                </section>
-
-                <section id="tab-tournaments" class="panel admin-tab">
-                    <div class="section-head"><h2>赛事管理</h2><button onclick="toggleCreateForm('tournamentCreate')">新增赛事</button></div>
-                    <details id="tournamentCreate" class="admin-create">
-                        <summary>新增赛事</summary>
-                        <div class="form-grid">
-                            <input id="tourName" placeholder="赛事名称">
-                            <input id="tourShort" placeholder="简称（可选，移动端展示）">
-                            <select id="tourGame"><option value="cs2">CS2</option><option value="valorant">Valorant</option></select>
-                            <input id="tourBegin" type="date">
-                            <input id="tourEnd" type="date">
-                        </div>
-                        <div class="admin-create-foot"><button onclick="createTournament()">创建赛事</button></div>
-                    </details>
-                    <div class="admin-subtitle">筛选赛事</div>
-                    <div class="form-grid admin-filter-bar">
-                        <select id="filterTournamentActive" onchange="applyAdminFilters()">
-                            <option value="">全部启用状态</option>
-                            <option value="1">已启用</option>
-                            <option value="0">已禁用</option>
-                        </select>
-                        <select id="filterTournamentSource" onchange="applyAdminFilters()">
-                            <option value="">全部来源</option>
-                            <option value="pandascore">自动同步</option>
-                            <option value="manual">手动创建</option>
-                        </select>
-                    </div>
-                    <div class="table-wrap"><table><thead><tr><th>ID</th><th>名称</th><th>游戏</th><th>状态</th><th>级别</th><th>开始</th><th>结束</th><th>比赛数</th><th>来源</th><th>操作</th></tr></thead><tbody id="tournaments"></tbody></table></div>
-                </section>
-
-                <section id="tab-teams" class="panel admin-tab">
-                    <div class="section-head"><h2>队伍管理</h2><button onclick="toggleCreateForm('teamCreate')">新增队伍</button></div>
-                    <details id="teamCreate" class="admin-create">
-                        <summary>新增队伍</summary>
-                        <div class="form-grid">
-                            <input id="teamName" placeholder="队伍名称">
-                            <select id="teamGame"><option value="cs2">CS2</option><option value="valorant">Valorant</option></select>
-                            <input id="teamShort" placeholder="简称">
-                            <input id="teamLogo" placeholder="Logo URL">
-                            <input id="teamCountry" placeholder="国家/地区">
-                        </div>
-                        <div class="admin-create-foot"><button onclick="createTeam()">创建队伍</button></div>
-                    </details>
-                    <div class="admin-subtitle">筛选队伍</div>
-                    <div class="form-grid admin-filter-bar">
-                        <input id="filterTeamKeyword" placeholder="搜索队伍名称" oninput="applyAdminFilters()">
-                        <select id="filterTeamSource" onchange="applyAdminFilters()">
-                            <option value="">全部来源</option>
-                            <option value="pandascore">自动同步</option>
-                            <option value="manual">手动创建</option>
-                        </select>
-                    </div>
-                    <div class="table-wrap"><table><thead><tr><th>ID</th><th>队伍</th><th>游戏</th><th>简称</th><th>国家</th><th>来源</th><th>操作</th></tr></thead><tbody id="teams"></tbody></table></div>
-                </section>
-
-                <section id="tab-users" class="panel admin-tab">
-                    <div class="section-head"><h2>用户管理</h2><button onclick="toggleCreateForm('userCreate')">新增用户</button></div>
-                    <details id="userCreate" class="admin-create">
-                        <summary>新增用户</summary>
-                        <div class="form-grid">
-                            <input id="newUsername" placeholder="用户名">
-                            <input id="newPassword" placeholder="密码" type="password">
-                            <select id="newRole"><option value="user">用户</option><option value="admin">管理员</option></select>
-                        </div>
-                        <div class="admin-create-foot"><button onclick="createUser()">创建用户</button></div>
-                    </details>
-                    <div class="admin-subtitle">筛选用户</div>
-                    <div class="form-grid admin-filter-bar">
-                        <input id="filterUserKeyword" placeholder="搜索用户名" oninput="applyAdminFilters()">
-                        <select id="filterUserRole" onchange="applyAdminFilters()">
-                            <option value="">全部角色</option>
-                            <option value="user">用户</option>
-                            <option value="admin">管理员</option>
-                        </select>
-                    </div>
-                    <div class="table-wrap"><table><thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>积分</th><th>预测数</th><th>注册时间</th><th>操作</th></tr></thead><tbody id="users"></tbody></table></div>
-                </section>
-
-                <section id="tab-predictions" class="panel admin-tab">
-                    <div class="section-head"><h2>预测记录</h2></div>
-                    <div class="admin-subtitle">筛选预测</div>
-                    <div class="form-grid admin-filter-bar">
-                        <input id="filterPredictionKeyword" placeholder="搜索用户或队伍" oninput="applyAdminFilters()">
-                        <select id="filterPredictionStatus" onchange="applyAdminFilters()">
-                            <option value="">全部结算状态</option>
-                            <option value="finished">已结算</option>
-                            <option value="pending">未结算</option>
-                        </select>
-                    </div>
-                    <div class="table-wrap"><table><thead><tr><th>ID</th><th>用户</th><th>比赛</th><th>预测</th><th>状态</th><th>得分</th><th>提交时间</th><th>操作</th></tr></thead><tbody id="predictions"></tbody></table></div>
-                </section>
+            <div class="ad-main">
+                <!-- 同步状态条：所有页签共享 -->
+                <div class="ad-syncbar">
+                    <span id="adSyncBadge" class="ad-badge">读取中…</span>
+                    <span id="adSyncInfo" class="ad-sync-info"></span>
+                    <button type="button" id="adSyncBtn" class="ad-btn">同步赛事数据</button>
+                    <button type="button" id="adReloadBtn" class="ad-btn ghost" title="重新加载后台数据">刷新</button>
+                </div>
+                <div id="adView"></div>
             </div>
         </div>
     </main>
 
-    <div id="adminModal" class="modal" hidden>
-        <div class="modal-backdrop" onclick="closeAdminModal()"></div>
-        <section class="modal-panel">
-            <button class="modal-close" onclick="closeAdminModal()">×</button>
-            <div class="modal-head"><h2 id="adminModalTitle"></h2><p id="adminModalHint"></p></div>
-            <div id="adminModalBody"></div>
-            <div class="admin-modal-foot">
-                <button class="ghost" onclick="closeAdminModal()">取消</button>
-                <button id="adminModalSubmit">保存</button>
-            </div>
+    <!-- 通用对话框：表单编辑与二次确认共用 -->
+    <div id="adModal" class="modal ad-modal" hidden>
+        <div class="modal-backdrop" data-close></div>
+        <section class="modal-panel ad-modal-panel" role="dialog" aria-modal="true" aria-labelledby="adModalTitle">
+            <header class="ad-modal-head">
+                <div><h2 id="adModalTitle"></h2><p id="adModalHint"></p></div>
+                <button type="button" class="ad-icon-btn" data-close aria-label="关闭">×</button>
+            </header>
+            <form id="adModalForm" class="ad-modal-body" novalidate></form>
+            <p id="adModalError" class="ad-modal-error" hidden></p>
+            <footer class="ad-modal-foot">
+                <button type="button" class="ad-btn ghost" data-close>取消</button>
+                <button type="submit" form="adModalForm" id="adModalSubmit" class="ad-btn">保存</button>
+            </footer>
         </section>
     </div>
+
+    <div id="adToasts" class="ad-toasts" aria-live="polite"></div>
 
     <footer class="site-footer">
         <div class="icp-info">
