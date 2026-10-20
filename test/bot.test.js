@@ -59,7 +59,7 @@ test('no current fixtures falls back to future and pending results are never inv
         match(2, '2026-09-24T18:00:00+08:00')
     ]), config, now).text;
     assert.match(report, /赛果待更新/);
-    assert.match(report, /为你预告后续赛事/);
+    assert.match(report, /今日无比赛，近期赛程/);
     assert.match(report, /09\/24 18:00/);
     assert.doesNotMatch(report, /null:null|0:0/);
 });
@@ -67,7 +67,7 @@ test('no current fixtures falls back to future and pending results are never inv
 test('only next predawn fixtures still generate today schedule', () => {
     const report = dailyReport(feed([match(1, '2026-09-23T02:00:00+08:00')]), config, now).text;
     assert.match(report, /次日 09\/23 02:00/);
-    assert.doesNotMatch(report, /今日暂无/);
+    assert.doesNotMatch(report, /今日无比赛/);
 });
 
 test('05:50 schedules the correct calendar report; stale past fixtures do not remind', () => {
@@ -80,18 +80,18 @@ test('05:50 schedules the correct calendar report; stale past fixtures do not re
     assert.equal(plan(feed(excluded), config, now).filter(job => job.kind === 'reminder').length, 0);
 });
 
-test('reminders include match ID, deadline, format-valid command and direct match link', () => {
+test('reminders include match ID, start time, format-valid command and direct match link', () => {
     for (const [format, score] of [['BO1', '1:0'], ['BO3', '2:1'], ['BO5', '3:1']]) {
         const m = match(123, '2026-09-22T12:20:00+08:00', { format, betting_enabled: 1 });
         const reminder = plan(feed([m]), { ...config, commandsEnabled: true }, now).find(job => job.kind === 'reminder');
         assert.match(reminder.text, /#123 Alpha vs Beta/);
-        assert.match(reminder.text, /竞猜截止：09\/22 12:20（北京时间）/);
+        assert.match(reminder.text, /BO\d · 09\/22 12:20/);
+        assert.doesNotMatch(reminder.text, /竞猜截止|北京时间/);
         assert.ok(reminder.text.includes(`/prbet 竞猜 123 ${score}`));
-        assert.match(reminder.text, /请改成你的预测/);
         assert.match(reminder.text, /tournament=1#match-row-123/);
         const closed = plan(feed([{ ...m, betting_enabled: 0 }]), { ...config, commandsEnabled: true }, now).find(job => job.kind === 'reminder');
-        assert.match(closed.text, /当前竞猜未开放/);
-        assert.doesNotMatch(closed.text, /\/prbet 竞猜|竞猜截止/);
+        assert.match(closed.text, /竞猜未开放/);
+        assert.doesNotMatch(closed.text, /\/prbet 竞猜|回复比分/);
     }
 });
 
@@ -108,7 +108,7 @@ test('reminder command instructions appear only in groups with commands enabled'
         assert.equal(reminders.length, 2);
         assert.match(reminders.find(item => item.group === '123456').text, /\/prbet 竞猜 123 2:1/);
         assert.doesNotMatch(reminders.find(item => item.group === '123457').text, /\/prbet/);
-        assert.match(reminders.find(item => item.group === '123457').text, /网站参与预测/);
+        assert.match(reminders.find(item => item.group === '123457').text, /可在网站竞猜/);
     } finally { fs.rmSync(dir, { recursive: true }); }
 });
 

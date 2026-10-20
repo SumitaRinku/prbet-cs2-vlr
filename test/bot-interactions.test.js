@@ -124,7 +124,7 @@ test('schedule combines game, Beijing calendar-day and stable pagination filters
         assert.deepEqual(ids(command('赛程 明天 CS2 2').text), [115, 116, 1]);
         assert.deepEqual(ids(command('赛程 今天').text), [200]);
         assert.deepEqual(ids(command('赛程 val 明天').text), [300]);
-        assert.match(command('赛程 valorant 今天').text, /当前筛选下暂无/);
+        assert.match(command('赛程 valorant 今天').text, /暂无可竞猜的比赛/);
         assert.match(command('赛程 cs2 明天 9').text, /共 2 页/);
         for (const invalid of ['赛程 0', '赛程 昨天', '赛程 cs2 cs2', '赛程 2 3', '赛程 constructor']) {
             assert.match(command(invalid).text, /格式：/);
@@ -184,7 +184,7 @@ test('admin permissions and settlement events are atomic, deduplicated, and corr
         assert.equal(db.prepare('SELECT total_score FROM users WHERE id=2').get().total_score,0);
         const event=JSON.parse(db.prepare('SELECT payload FROM bot_settlement_events ORDER BY id DESC LIMIT 1').get().payload);
         assert.equal(event.correction,true); assert.equal(event.predictions[0].delta,-2);
-        assert.match(settlementText(event),/较上次结算 -2/);
+        assert.match(settlementText(event),/较上次 -2/);
         command('弃权 1 1',admin);
         assert.equal(db.prepare('SELECT is_forfeit FROM matches').get().is_forfeit,1);
         assert.equal(db.prepare('SELECT COUNT(*) n FROM bot_command_receipts WHERE qq_id=?').get(admin).n,5);
@@ -200,8 +200,8 @@ test('merged settlement digest combines multiple events into one message', () =>
     assert.match(text, /赛果更正与结算 · 共 3 场/);
     for (const id of [1, 2, 3]) assert.match(text, new RegExp(`#${id} IEM Dallas`));
     assert.match(text, /比分全中/);
-    assert.match(text, /较上次结算 -2/);
-    assert.equal(text.match(/积分已在网站结算/g).length, 1);
+    assert.match(text, /较上次 -2/);
+    assert.equal(text.match(/【/g).length, 1);
 });
 
 async function serve(app, work) {

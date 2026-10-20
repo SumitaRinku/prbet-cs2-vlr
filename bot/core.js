@@ -73,7 +73,7 @@ function groupedFixtures(matches, now, day) {
 
 function previewLines(matches, start, end, now) {
     const future = matches.filter(m => isFixture(m) && m.status === 'upcoming' && between(m, start, end));
-    if (!future.length) return ['未来七天暂无已公布赛程。'];
+    if (!future.length) return ['未来七天暂无赛程'];
     const groups = new Map();
     for (const m of future) {
         if (!groups.has(m.tournament_id)) groups.set(m.tournament_id, []);
@@ -82,7 +82,7 @@ function previewLines(matches, start, end, now) {
     return [...groups.values()].flatMap(rows => [
         '', title(rows[0]),
         ...rows.slice(0, 4).map(m => fixtureLine(m, now)),
-        ...(rows.length > 4 ? [`其余 ${rows.length - 4} 场见网站`] : [])
+        ...(rows.length > 4 ? [`另有 ${rows.length - 4} 场见网站`] : [])
     ]);
 }
 
@@ -94,8 +94,7 @@ function dailyReport(feed, config, now, day = midnight(now)) {
     const finished = yesterday.filter(m => m.status === 'finished' && m.team1_score !== null && m.team2_score !== null);
     const pending = yesterday.filter(m => ['upcoming', 'ongoing'].includes(m.status)
         || (m.status === 'finished' && (m.team1_score === null || m.team2_score === null)));
-    const lines = [`【赛事日报 · ${dateKey(day)}】`, '时间：北京时间', '',
-        '昨日简报', `截至 ${label(now)}`];
+    const lines = [`【赛事日报 · ${dateKey(day)}】`, '', '昨日赛果'];
     const resultGroups = new Map();
     for (const m of finished.slice(0, config.resultsLimit)) {
         const key = `${m.game_type}:${m.tournament_id}`;
@@ -108,21 +107,21 @@ function dailyReport(feed, config, now, day = midnight(now)) {
             lines.push(`${clean(m.team1_name)} ${m.team1_score}:${m.team2_score} ${clean(m.team2_name)}${m.is_forfeit ? '（弃权）' : ''}`);
         }
     }
-    if (!finished.length) lines.push('暂无已确认赛果。');
-    if (finished.length > config.resultsLimit) lines.push(`另有 ${finished.length - config.resultsLimit} 场赛果，详见网站。`);
-    if (pending.length) lines.push(`${pending.length} 场尚未结束或赛果待更新。`);
+    if (!finished.length) lines.push('暂无赛果');
+    if (finished.length > config.resultsLimit) lines.push(`另有 ${finished.length - config.resultsLimit} 场见网站`);
+    if (pending.length) lines.push(`${pending.length} 场赛果待更新`);
     const cancelled = yesterday.filter(m => ['cancelled', 'postponed'].includes(m.status)).length;
-    if (cancelled) lines.push(`${cancelled} 场取消或延期。`);
+    if (cancelled) lines.push(`${cancelled} 场取消或延期`);
     const today = matches.filter(m => isFixture(m) && between(m, start, end));
     lines.push('', '今日赛程');
     if (today.length) lines.push(...groupedFixtures(today, now, day));
     else {
-        lines.push('今日暂无已确认比赛，为你预告后续赛事：',
+        lines.push('今日无比赛，近期赛程：',
             ...previewLines(matches, end, now + 7 * DAY, now));
     }
     const unknown = matches.filter(m => m.time_confirmed !== 1 && m.status === 'upcoming' && between(m, start, end)).length;
-    if (unknown) lines.push(`另有 ${unknown} 场开赛时间待确认，未列入定时赛程。`);
-    lines.push('', '赛程以最新公告为准。', `${config.siteUrl}/tournaments.html`);
+    if (unknown) lines.push(`另有 ${unknown} 场时间待定`);
+    lines.push('', `${config.siteUrl}/tournaments.html`);
     return { text: lines.join('\n'), watched: today.filter(m => Date.parse(m.match_time) > now).map(snapshot) };
 }
 
@@ -147,15 +146,10 @@ function plan(feed, config, now, watched = {}) {
             jobs.push({ key: `reminder:${m.id}:${iso(time)}`, kind: 'reminder', expires: time,
                 watched: [snapshot(m)], text: [
                     `【即将开赛 · 约 ${Math.ceil(remaining / 60000)} 分钟后】`, title(m),
-                    `#${m.id} ${versus(m)} · ${m.format}`, `开赛：${label(time)}（北京时间）`,
-                    ...(m.betting_enabled ? [
-                        `竞猜截止：${label(time)}（北京时间）`,
-                        '回复本消息并发送比分即可竞猜（如 2:1）：',
-                        ...(config.commandsEnabled ? [
-                            '竞猜示例（请改成你的预测，比分按上方队伍顺序）：',
-                            `/prbet 竞猜 ${m.id} ${m.format === 'BO1' ? '1:0' : m.format === 'BO5' ? '3:1' : '2:1'}`
-                        ] : ['赛前可在网站参与预测'])
-                    ] : ['当前竞猜未开放']),
+                    `#${m.id} ${versus(m)} · ${m.format} · ${label(time)}`,
+                    ...(m.betting_enabled ? (config.commandsEnabled ? [
+                        `回复比分或发送 /prbet 竞猜 ${m.id} ${m.format === 'BO1' ? '1:0' : m.format === 'BO5' ? '3:1' : '2:1'}`
+                    ] : ['可在网站竞猜']) : ['竞猜未开放']),
                     `${config.siteUrl}/tournaments.html?tournament=${m.tournament_id}#match-row-${m.id}`
                 ].join('\n') });
         }
@@ -163,7 +157,7 @@ function plan(feed, config, now, watched = {}) {
     const day = midnight(now), weeklyDue = at(day, config.weeklyTime);
     if (config.weeklyEnabled && new Date(day + OFFSET).getUTCDay() === 0 && now >= weeklyDue && now <= weeklyDue + 2 * 3600000) {
         jobs.push({ key: `weekly:${dateKey(day)}`, kind: 'weekly', expires: weeklyDue + 2 * 3600000, watched: [],
-            text: ['【未来七天赛事预告】', '北京时间 · 仅含目前已同步赛程',
+            text: ['【未来七天赛事预告】',
                 ...previewLines(matches, now, now + 7 * DAY, now), '', `${config.siteUrl}/tournaments.html`].join('\n') });
     }
     const byId = new Map(matches.map(m => [String(m.id), m]));

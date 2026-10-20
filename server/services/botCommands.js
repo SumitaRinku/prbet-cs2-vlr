@@ -86,14 +86,14 @@ function getMatch(db, id) {
     const m = db.prepare(`SELECT m.*, t.is_active, t.name tournament_name, a.name team1_name, b.name team2_name
         FROM matches m JOIN tournaments t ON t.id=m.tournament_id
         JOIN teams a ON a.id=m.team1_id JOIN teams b ON b.id=m.team2_id WHERE m.id=?`).get(id);
-    if (!m || !m.is_active) problem('比赛不存在或赛事未启用；发送 /prbet 赛程 可查看当前可竞猜的比赛及 ID');
+    if (!m || !m.is_active) problem('比赛不存在');
     return m;
 }
 
 function predict(db, userId, matchId, a, b, now = Date.now(), cancel = false) {
     const m = getMatch(db, matchId);
-    if (m.status !== 'upcoming' || !(Date.parse(m.match_time) > now)) problem('比赛已开始或已结束，无法竞猜；发送 /prbet 赛程 可查看尚未开赛的比赛');
-    if (!cancel && (!m.betting_enabled || !m.time_confirmed || m.team1_name === 'TBD' || m.team2_name === 'TBD')) problem('比赛暂未开放竞猜或对阵/时间未确定，请稍后再试或联系管理员开启');
+    if (m.status !== 'upcoming' || !(Date.parse(m.match_time) > now)) problem('比赛已开始，无法竞猜');
+    if (!cancel && (!m.betting_enabled || !m.time_confirmed || m.team1_name === 'TBD' || m.team2_name === 'TBD')) problem('比赛未开放竞猜');
     const existing = db.prepare('SELECT * FROM predictions WHERE user_id=? AND match_id=?').get(userId, m.id);
     if (cancel) {
         if (!existing) problem('你尚未对这场比赛竞猜');
@@ -143,51 +143,48 @@ function runCommand(db, input, options = {}) {
 
     function execute(action, args) {
         if (action === '帮助') return [
-            'PRBET 群竞猜指令（均以 /prbet 开头，如「/prbet 赛程」）',
+            'PRBET 指令（均以 /prbet 开头）',
             '',
             '▶ 账号',
-            '绑定 绑定码 —— 绑定网站账号（码在 个人中心→账号设置 生成，10 分钟有效）',
-            '加入 / 退出 —— 控制是否在本群展示你的赛后竞猜',
-            '解绑 —— 解除 QQ 与网站账号的绑定',
+            '绑定 绑定码 —— 绑定网站账号（个人中心→账号设置 生成）',
+            '加入 / 退出 —— 加入或退出本群竞猜',
+            '解绑 —— 解除绑定',
             '',
             '▶ 竞猜',
-            '赛程 [cs2/valorant] [今天/明天] [页码] —— 每页 15 场，如 赛程 cs2 明天 2',
-            '竞猜 比赛ID 2:1 —— 提交比分（按赛程队伍顺序填写）',
-            '修改 比赛ID 2:1 —— 修改已有竞猜',
-            '取消 比赛ID —— 取消竞猜（开赛前有效）',
-            '我的 [待开赛/待结算/已结算] [cs2/valorant] [页码] —— 每页 10 条，如 我的 待开赛 cs2',
+            '赛程 [cs2/valorant] [今天/明天] [页码]',
+            '竞猜 / 修改 比赛ID 2:1',
+            '取消 比赛ID',
+            '我的 [待开赛/待结算/已结算] [cs2/valorant] [页码]',
             '',
             '▶ 管理员',
             '开启竞猜 / 关闭竞猜 比赛ID',
-            '结算 比赛ID 2:1 · 弃权 比赛ID 1或2',
-            '',
-            '赛后本群自动播报结算结果与积分。'
+            '结算 比赛ID 2:1 · 弃权 比赛ID 1或2'
         ].join('\n');
         if (action === '绑定') {
             const code = String(args[0] || '').toUpperCase();
             const row = db.prepare('SELECT * FROM bot_bind_codes WHERE code_hash=? AND qq_id=? AND expires_at>?').get(hash(code), qq, now);
-            if (!row) problem('绑定码无效或已过期（10 分钟内有效，且仅限生成时填写的 QQ）；请在网站「个人中心 → 账号设置 → 机器人绑定」重新生成');
+            if (!row) problem('绑定码无效或已过期，请在网站重新生成');
             const old = db.prepare('SELECT * FROM bot_bindings WHERE qq_id=? OR user_id=?').all(qq, row.user_id);
-            if (old.some(x => x.qq_id !== qq || x.user_id !== row.user_id)) problem('QQ 或账号已绑定，请先在网站「个人中心 → 账号设置」解除原绑定后再试');
+            if (old.some(x => x.qq_id !== qq || x.user_id !== row.user_id)) problem('QQ 或账号已绑定，请先在网站解绑');
             db.prepare('INSERT OR IGNORE INTO bot_bindings VALUES(?,?)').run(qq, row.user_id);
             db.prepare('DELETE FROM bot_bind_codes WHERE user_id=?').run(row.user_id);
             db.prepare('INSERT OR IGNORE INTO bot_group_members VALUES(?,?,?)').run(group, qq, now);
-            return '绑定成功，已加入本群竞猜。赛后将公开你在本群的竞猜结果与得分。';
+            return '绑定成功，已加入本群竞猜';
         }
         const binding = db.prepare('SELECT b.*,u.username FROM bot_bindings b JOIN users u ON u.id=b.user_id WHERE qq_id=?').get(qq);
         if (action === '退出') {
             db.prepare('DELETE FROM bot_group_members WHERE group_id=? AND qq_id=?').run(group, qq);
-            return '已退出本群竞猜展示；网站账号与已提交竞猜不变。';
+            return '已退出本群竞猜';
         }
         if (action === '解绑') {
             if (binding) db.prepare('DELETE FROM bot_bind_codes WHERE user_id=?').run(binding.user_id);
             db.prepare('DELETE FROM bot_bindings WHERE qq_id=?').run(qq);
-            return '已解除 QQ 绑定及所有群的竞猜展示关联。';
+            return '已解除绑定';
         }
         if (action === '加入') {
             if (!binding) problem('请先在网站生成绑定码，并发送 /prbet 绑定 绑定码');
             db.prepare('INSERT OR IGNORE INTO bot_group_members VALUES(?,?,?)').run(group, qq, now);
-            return '已加入本群竞猜，赛后将公开你的竞猜结果与得分。';
+            return '已加入本群竞猜';
         }
         if (action === '赛程') {
             const filter = queryFilters(action, args, now);
@@ -201,9 +198,9 @@ function runCommand(db, input, options = {}) {
             const { rows, footer } = queryPage(db,
                 'm.id,m.match_time,m.format,m.tournament_id,t.game_type,t.name tournament_name,a.name a,b.name b',
                 from, where, params, 'julianday(m.match_time),m.id', action, filter);
-            return rows.length ? `可竞猜赛程${filter.args ? ` · ${filter.args}` : ''}（北京时间，今天/明天按 00:00–24:00，比分按队伍顺序）：\n\n`
+            return rows.length ? `可竞猜赛程${filter.args ? ` · ${filter.args}` : ''}：\n\n`
                 + groupByTournament(rows, m => `#${m.id} ${beijingTime(m.match_time)} ${m.a} vs ${m.b} ${m.format}`) + footer
-                : '当前筛选下暂无开放竞猜的比赛；发送 /prbet 赛程 查看全部';
+                : '暂无可竞猜的比赛';
         }
         if (['开启竞猜', '关闭竞猜', '结算', '弃权'].includes(action)) {
             if (!settings.admins.includes(qq)) problem('需要配置的管理员 QQ 权限');
@@ -249,8 +246,8 @@ function runCommand(db, input, options = {}) {
             const { rows, footer } = queryPage(db,
                 'p.*,m.tournament_id,m.match_time,m.status match_status,m.is_forfeit,t.game_type,t.name tournament_name,a.name a,b.name b',
                 from, where, params, filter.status === '待开赛' ? 'julianday(m.match_time),p.id' : 'p.id DESC', action, filter);
-            return `${binding.username} 的竞猜${filter.args ? ` · ${filter.args}` : ''}（北京时间）：\n\n`
-                + (rows.length ? groupByTournament(rows, p => `#${p.match_id} ${beijingTime(p.match_time)} ${p.a} ${p.predicted_team1_score}:${p.predicted_team2_score} ${p.b} · ${predictionState(p, now)}`) + footer : '当前筛选下暂无竞猜');
+            return `${binding.username} 的竞猜${filter.args ? ` · ${filter.args}` : ''}：\n\n`
+                + (rows.length ? groupByTournament(rows, p => `#${p.match_id} ${beijingTime(p.match_time)} ${p.a} ${p.predicted_team1_score}:${p.predicted_team2_score} ${p.b} · ${predictionState(p, now)}`) + footer : '暂无竞猜');
         }
         if (action === '取消') return predict(db, binding.user_id, args[0], 0, 0, now, true);
         if (['竞猜', '修改'].includes(action)) {

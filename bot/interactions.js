@@ -66,16 +66,19 @@ function predictionOutcome(p, m) {
     return p.predicted_team1_score === m.team1_score && p.predicted_team2_score === m.team2_score ? '比分全中' : '猜中胜者';
 }
 
+// 首次结算只显示得分；赛果更正显示新得分及与上次结算的差值。
+const pointsText = (p, event) => event.correction
+    ? `${p.points_earned} 分（较上次 ${p.delta >= 0 ? '+' : ''}${p.delta}）` : `+${p.points_earned} 分`;
+
 function settlementText(event) {
     const m = event.match;
     const clean = s => String(s).replace(/[\r\n\x00-\x1f]/g, ' ').slice(0, 160);
     const lines = [`【${event.correction ? '赛果更正' : '比赛结算'} · #${m.id}】`, clean(m.tournament_name),
-        `${clean(m.team1_name)} ${m.team1_score}:${m.team2_score} ${clean(m.team2_name)}${m.is_forfeit ? '（弃权，不计分）' : ''}`, '', '本群竞猜结果'];
+        `${clean(m.team1_name)} ${m.team1_score}:${m.team2_score} ${clean(m.team2_name)}${m.is_forfeit ? '（弃权，不计分）' : ''}`, ''];
     for (const p of event.predictions) {
-        lines.push(`${clean(p.username)}：${p.predicted_team1_score}:${p.predicted_team2_score} · ${predictionOutcome(p, m)} · 本场 ${p.points_earned} 分${event.correction ? `（较上次结算 ${p.delta >= 0 ? '+' : ''}${p.delta}）` : `（+${p.points_earned}）`}`);
+        lines.push(`${clean(p.username)}：${p.predicted_team1_score}:${p.predicted_team2_score} · ${predictionOutcome(p, m)} · ${pointsText(p, event)}`);
     }
-    if (!event.predictions.length) lines.push('暂无已绑定并加入本群的成员参与这场竞猜。');
-    lines.push('积分已在网站结算，群消息不会重复加分。');
+    if (!event.predictions.length) lines.push('本群无人竞猜');
     return lines.join('\n');
 }
 
@@ -90,10 +93,9 @@ function mergedSettlementText(events) {
             `${clean(m.team1_name)} ${m.team1_score}:${m.team2_score} ${clean(m.team2_name)}${m.is_forfeit ? '（弃权，不计分）' : ''}`);
         if (event.predictions.length) {
             for (const p of event.predictions)
-                lines.push(`· ${clean(p.username)}：${p.predicted_team1_score}:${p.predicted_team2_score} · ${predictionOutcome(p, m)} · 本场 ${p.points_earned} 分${event.correction ? `（较上次结算 ${p.delta >= 0 ? '+' : ''}${p.delta}）` : `（+${p.points_earned}）`}`);
-        } else lines.push('· 暂无本群成员参与这场竞猜');
+                lines.push(`· ${clean(p.username)}：${p.predicted_team1_score}:${p.predicted_team2_score} · ${predictionOutcome(p, m)} · ${pointsText(p, event)}`);
+        } else lines.push('· 本群无人竞猜');
     }
-    lines.push('', '积分已在网站结算，群消息不会重复加分。');
     return lines.join('\n');
 }
 
