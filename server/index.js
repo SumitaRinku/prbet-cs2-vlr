@@ -80,6 +80,12 @@ function serveHtml(file) {
     return (req, res) => {
         try {
             const html = fs.readFileSync(path.join(publicDir, file), 'utf8');
+            // HTML 禁止缓存：部署后浏览器若命中 304 会继续复用旧缓存，
+            // 一旦曾缓存到空白/半成品页面，页面会一直是纯背景且无报错。
+            // 同时忽略条件请求，已缓存过坏页面的浏览器刷新时也能强制拿到新 HTML。
+            res.set('Cache-Control', 'no-store');
+            delete req.headers['if-none-match'];
+            delete req.headers['if-modified-since'];
             res.send(html.replace('{{BEIAN}}', beianHtml()));
         } catch (error) {
             res.status(404).end();

@@ -65,6 +65,16 @@
             <div id="brandFilters" class="ar-brands" aria-label="按厂牌筛选"></div>
             <p id="tierHint" class="ar-hint"></p>
         </section>
+        <section id="previewSection" class="ar-preview" aria-label="未来赛事预告" hidden>
+            <header class="ar-preview-head">
+                <div>
+                    <h2>未来赛事预告</h2>
+                    <p id="previewMeta"></p>
+                </div>
+                <button type="button" class="ar-preview-toggle" id="previewToggle" aria-expanded="true" onclick="togglePreviewSection()">收起</button>
+            </header>
+            <div id="previewList" class="ar-preview-list"></div>
+        </section>
         <section id="tournaments" class="ar-list"></section>
     </main>
 

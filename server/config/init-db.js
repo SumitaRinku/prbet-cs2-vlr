@@ -110,12 +110,33 @@ function ensureDatabase() {
             matches_finished INTEGER NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- 未来赛事预告：只存赛事（PandaScore serie）层级信息，不导入远期比赛。
+        -- 与 tournaments 分开，避免远期赛事混入回看列表和积分统计。
+        CREATE TABLE IF NOT EXISTS tournament_previews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_type TEXT NOT NULL,
+            external_source TEXT NOT NULL DEFAULT 'pandascore',
+            external_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            begin_at TEXT,
+            end_at TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(external_source, external_id)
+        );
+
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tournaments_external ON tournaments(external_source, external_id) WHERE external_source IS NOT NULL AND external_id IS NOT NULL;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_external ON teams(external_source, external_id) WHERE external_source IS NOT NULL AND external_id IS NOT NULL;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_matches_external ON matches(external_source, external_id) WHERE external_source IS NOT NULL AND external_id IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_matches_time ON matches(match_time);
         CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
         CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
+        CREATE INDEX IF NOT EXISTS idx_tournament_previews_time ON tournament_previews(game_type, begin_at);
         CREATE INDEX IF NOT EXISTS idx_teams_game ON teams(game_type);
         CREATE INDEX IF NOT EXISTS idx_predictions_user ON predictions(user_id);
         CREATE INDEX IF NOT EXISTS idx_predictions_match ON predictions(match_id);

@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../config/database');
 const { TIER_SQL } = require('../services/tournamentTier');
+const { getPreviewDays } = require('../services/settings');
 
 const router = express.Router();
 
@@ -89,6 +90,26 @@ router.get('/', (req, res) => {
     // 厂牌为查询时按名称关键词推断，不落库（见文件头 BRAND_RULES）
     tournaments.forEach(t => { t.brand = brandOf(t.name, t.game_type); });
     res.json({ tournaments });
+});
+
+// 未来赛事预告（PandaScore serie 层级，不是本地赛事）：仅展示，不参与积分/回看。
+// 必须放在 /:id 之前，否则 "previews" 会被当成赛事 id。
+router.get('/previews', (req, res) => {
+    const { game_type } = req.query;
+    const params = [];
+    let where = "datetime(COALESCE(end_at, begin_at)) >= datetime('now')";
+    if (game_type) {
+        where += ' AND game_type = ?';
+        params.push(game_type);
+    }
+    const previews = db.prepare(`
+        SELECT id, game_type, external_id, name, begin_at, end_at
+        FROM tournament_previews
+        WHERE ${where}
+        ORDER BY datetime(begin_at) ASC
+        LIMIT 200
+    `).all(...params);
+    res.json({ previews, days: getPreviewDays() });
 });
 
 router.get('/:id', (req, res) => {

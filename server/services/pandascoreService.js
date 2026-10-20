@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { settleMatch, recalculateUserScores } = require('../utils/settlement');
+const { getPreviewDays } = require('./settings');
 
 const SOURCE = 'pandascore';
 const BASE_URL = process.env.PANDASCORE_BASE_URL || 'https://api.pandascore.co';
@@ -7,14 +8,21 @@ const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_INTERVAL_MS = 60 * 1000;
 const PER_PAGE = 100;
 const MAX_PAGES = 10;
+const MAX_PREVIEW_PAGES = 10;
 const DEFAULT_LOOKAHEAD_DAYS = 7;
 const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
+// 远期赛事预告刷新频率：近端比赛仍按 PANDASCORE_SYNC_INTERVAL_MS 高频同步，
+// 预告只拉赛事层级数据，默认每 6 小时刷新一次，避免把远期赛事拆成每场比赛。
+const DEFAULT_PREVIEW_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const MIN_PREVIEW_INTERVAL_MS = 30 * 60 * 1000;
 const GAMES = {
-    cs2: { endpoint: '/csgo/matches', label: 'CS2' },
-    valorant: { endpoint: '/valorant/matches', label: 'Valorant' }
+    cs2: { endpoint: '/csgo/matches', seriesEndpoint: '/csgo/series/upcoming', label: 'CS2' },
+    valorant: { endpoint: '/valorant/matches', seriesEndpoint: '/valorant/series/upcoming', label: 'Valorant' }
 };
 let timer = null;
+let previewTimer = null;
 let running = false;
+let previewRunning = false;
 
 // ===== 同步异常告警 =====
 // 自动同步（startup/scheduled）连续异常时推送到 webhook，避免静默断同步导致
@@ -68,6 +76,11 @@ function intervalMs() {
 function lookaheadDays() {
     const value = Number(process.env.PANDASCORE_SYNC_LOOKAHEAD_DAYS);
     return Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), 7) : DEFAULT_LOOKAHEAD_DAYS;
+}
+
+function previewIntervalMs() {
+    const value = Number(process.env.PANDASCORE_PREVIEW_INTERVAL_MS);
+    return Number.isFinite(value) && value > 0 ? Math.max(value, MIN_PREVIEW_INTERVAL_MS) : DEFAULT_PREVIEW_INTERVAL_MS;
 }
 
 function requestTimeoutMs() {
@@ -263,6 +276,96 @@ async function fetchMatches(gameType) {
     }
 
     return rows;
+}
+
+// ===== 未来赛事预告（赛事层级，不导入远期比赛）=====
+
+function serieDisplayName(serie) {
+    const leagueName = serie.league?.name || '';
+    const serieLabel = serie.full_name || serie.name || '';
+    if (leagueName && serieLabel) {
+        return serieLabel.toLowerCase().includes(leagueName.toLowerCase()) ? serieLabel : `${leagueName} ${serieLabel}`;
+    }
+    return leagueName || serieLabel || 'PandaScore 赛事';
+}
+
+async function fetchUpcomingSeries(gameType) {
+    const game = GAMES[gameType];
+    const days = getPreviewDays();
+    const nowMs = Date.now();
+    const untilMs = nowMs + days * 24 * 60 * 60 * 1000;
+    const rows = [];
+
+    for (let page = 1; page <= MAX_PREVIEW_PAGES; page++) {
+        const data = await fetchJson(game.seriesEndpoint, {
+            'page[number]': page,
+            'page[size]': PER_PAGE,
+            sort: 'begin_at'
+        });
+        if (!Array.isArray(data)) throw new Error('PandaScore 返回了非数组赛事预告');
+        for (const serie of data) {
+            const beginMs = serie.begin_at ? new Date(serie.begin_at).getTime() : NaN;
+            const endMs = serie.end_at ? new Date(serie.end_at).getTime() : NaN;
+            const lastMs = Number.isFinite(endMs) ? endMs : beginMs;
+            if (!Number.isFinite(beginMs) || beginMs > untilMs) continue;
+            if (Number.isFinite(lastMs) && lastMs < nowMs) continue; // 已结束的不算预告
+            rows.push({ serie, gameType });
+        }
+        if (data.length < PER_PAGE) break;
+    }
+
+    return rows;
+}
+
+async function syncTournamentPreviews() {
+    if (previewRunning) return { status: 'skipped', message: '已有赛事预告同步任务正在运行' };
+    if (!token()) throw new Error('PANDASCORE_API_TOKEN 未配置');
+    previewRunning = true;
+    const run = db.prepare('INSERT INTO sync_runs (source, mode, status) VALUES (?, ?, ?)').run(SOURCE, 'preview', 'running');
+
+    try {
+        const days = getPreviewDays();
+        const gameKeys = Object.keys(GAMES);
+        const settled = await Promise.allSettled(gameKeys.map(gameKey => fetchUpcomingSeries(gameKey)));
+        const failures = [];
+        settled.forEach((outcome, index) => {
+            if (outcome.status === 'rejected') failures.push(`${GAMES[gameKeys[index]].label}：${outcome.reason.message}`);
+        });
+        if (failures.length === gameKeys.length) throw new Error(`赛事预告拉取失败：${failures.join('；')}`);
+
+        const now = new Date().toISOString();
+        let count = 0;
+        const replacePreviews = db.transaction(() => {
+            const remove = db.prepare('DELETE FROM tournament_previews WHERE external_source = ? AND game_type = ?');
+            const insert = db.prepare(`
+                INSERT INTO tournament_previews (game_type, external_source, external_id, name, begin_at, end_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `);
+            settled.forEach((outcome, index) => {
+                // 单游戏失败时保留该游戏的旧预告，避免整块消失
+                if (outcome.status !== 'fulfilled') return;
+                const gameType = gameKeys[index];
+                remove.run(SOURCE, gameType);
+                for (const { serie } of outcome.value) {
+                    if (!serie.id) continue;
+                    insert.run(gameType, SOURCE, `${gameType}:${serie.id}`, serieDisplayName(serie), iso(serie.begin_at), iso(serie.end_at), now);
+                    count++;
+                }
+            });
+        });
+        replacePreviews();
+
+        const message = `赛事预告更新 ${count} 项（未来 ${days} 天）${failures.length ? `（部分失败：${failures.join('；')}）` : ''}`;
+        db.prepare("UPDATE sync_runs SET status = 'success', message = ?, finished_at = CURRENT_TIMESTAMP, tournaments_upserted = ? WHERE id = ?")
+            .run(message, count, run.lastInsertRowid);
+        console.log(`[PandaScore] ${message}`);
+        return { status: failures.length ? 'partial' : 'success', message, previews_upserted: count, days };
+    } catch (error) {
+        db.prepare("UPDATE sync_runs SET status = 'failed', message = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?").run(error.message, run.lastInsertRowid);
+        throw error;
+    } finally {
+        previewRunning = false;
+    }
 }
 
 function upsertTournament(match, now) {
@@ -575,8 +678,13 @@ function syncStatus() {
         games: Object.keys(GAMES),
         interval_ms: intervalMs(),
         lookahead_days: lookaheadDays(),
+        preview_days: getPreviewDays(),
+        preview_interval_ms: previewIntervalMs(),
+        preview_running: previewRunning,
         running,
-        last_run: db.prepare('SELECT * FROM sync_runs ORDER BY started_at DESC LIMIT 1').get() || null
+        // 比赛同步与赛事预告分开记录，避免预告任务覆盖比赛同步状态
+        last_run: db.prepare("SELECT * FROM sync_runs WHERE mode IS NULL OR mode != 'preview' ORDER BY started_at DESC LIMIT 1").get() || null,
+        preview_last_run: db.prepare("SELECT * FROM sync_runs WHERE mode = 'preview' ORDER BY started_at DESC LIMIT 1").get() || null
     };
 }
 
@@ -590,7 +698,13 @@ function startPandascoreSyncService() {
 
     syncPandascoreMatches('startup').catch(error => console.error('[PandaScore]', error.message));
     timer = setInterval(() => syncPandascoreMatches('scheduled').catch(error => console.error('[PandaScore]', error.message)), intervalMs());
-    console.log(`[PandaScore] sync enabled every ${intervalMs() / 1000}s`);
+
+    // 远期赛事预告低频刷新：启动后错开 15 秒，避免和比赛同步同时打接口
+    const previewTick = () => syncTournamentPreviews().catch(error => console.error('[PandaScore][preview]', error.message));
+    setTimeout(previewTick, 15000).unref?.();
+    previewTimer = setInterval(previewTick, previewIntervalMs());
+
+    console.log(`[PandaScore] sync enabled every ${intervalMs() / 1000}s; preview every ${previewIntervalMs() / 1000}s`);
 }
 
-module.exports = { syncPandascoreMatches, syncStatus, startPandascoreSyncService };
+module.exports = { syncPandascoreMatches, syncTournamentPreviews, syncStatus, startPandascoreSyncService };

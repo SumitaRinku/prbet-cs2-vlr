@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../config/database');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
-const { syncPandascoreMatches, syncStatus } = require('../services/pandascoreService');
+const { syncPandascoreMatches, syncTournamentPreviews, syncStatus } = require('../services/pandascoreService');
+const { PREVIEW_DAYS, setSetting } = require('../services/settings');
 const { TIER_SQL } = require('../services/tournamentTier');
 const { isValidScore } = require('../utils/scoring');
 const { settleMatch, recalculateUserScores } = require('../utils/settlement');
@@ -52,6 +53,25 @@ router.get('/stats', (req, res) => {
 });
 
 router.get('/sync/status', (req, res) => res.json({ sync: syncStatus() }));
+
+// 赛事预告前瞻天数：只影响赛事级预告，不改变近端比赛同步窗口
+router.put('/sync/settings', (req, res) => {
+    const days = Number(req.body?.preview_days);
+    if (!Number.isInteger(days) || days < PREVIEW_DAYS.min || days > PREVIEW_DAYS.max) {
+        return res.status(400).json({ error: `预告天数需为 ${PREVIEW_DAYS.min}-${PREVIEW_DAYS.max} 的整数` });
+    }
+    setSetting('preview_days', days);
+    res.json({ sync: syncStatus() });
+});
+
+// 手动刷新远期赛事预告（不导入远期比赛）
+router.post('/sync/previews', async (req, res) => {
+    try {
+        res.json(await syncTournamentPreviews());
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 router.post('/sync/pandascore', async (req, res) => {
     try {

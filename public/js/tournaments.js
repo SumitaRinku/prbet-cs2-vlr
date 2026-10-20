@@ -5,9 +5,13 @@ const state = {
     brand: localStorage.getItem('tournamentBrandFilter') || '',
     tier: localStorage.getItem('tournamentTierFilter') || '',
     search: '',
-    activeTournamentId: new URLSearchParams(location.search).get('tournament') || ''
+    activeTournamentId: new URLSearchParams(location.search).get('tournament') || '',
+    previews: [],
+    previewDays: 0,
+    previewCollapsed: localStorage.getItem('previewCollapsed') === '1'
 };
 
+const filterBarEl = document.querySelector('.ar-bar');
 const gameSegEl = document.querySelector('#gameSeg');
 const statusFilterEl = document.querySelector('#statusFilter');
 const tierFilterEl = document.querySelector('#tierFilter');
@@ -18,6 +22,10 @@ const tournamentsEl = document.querySelector('#tournaments');
 const tournamentCountEl = document.querySelector('#tournamentCount');
 const detailModalEl = document.querySelector('#detailModal');
 const detailModalBodyEl = document.querySelector('#detailModalBody');
+const previewSectionEl = document.querySelector('#previewSection');
+const previewMetaEl = document.querySelector('#previewMeta');
+const previewToggleEl = document.querySelector('#previewToggle');
+const previewListEl = document.querySelector('#previewList');
 
 if (tierFilterEl) tierFilterEl.value = state.tier;
 syncGameSeg();
@@ -40,6 +48,7 @@ function setGame(game) {
     syncGameSeg();
     updateTournamentUrl();
     renderTierHint();
+    renderPreviews();
     loadTournaments();
 }
 
@@ -117,6 +126,54 @@ function renderArchiveList() {
     applyViewMode();
 }
 
+// ---------- 未来赛事预告（赛事级，不参与积分/回看） ----------
+
+function previewItem(preview) {
+    const name = preview.name || '';
+    const logo = tournamentLogo(name, preview.game_type) || tournamentMark({ name, game_type: preview.game_type });
+    const day = value => formatDateTime(value).split(' ')[0] || '';
+    const start = day(preview.begin_at);
+    const end = day(preview.end_at);
+    const range = start && end && start !== end ? `${start} - ${end}` : (start || end);
+    return `<article class="ar-preview-item">
+        <span class="ar-preview-logo">${logo}</span>
+        <div class="ar-preview-text">
+            <h3 title="${escapeHtml(name)}">${escapeHtml(name)}</h3>
+            <p><span class="game-pill ${preview.game_type === 'valorant' ? 'valorant' : ''}">${escapeHtml(gameName(preview.game_type))}</span>${range ? `<span>${escapeHtml(range)}</span>` : ''}</p>
+        </div>
+    </article>`;
+}
+
+function renderPreviews() {
+    if (!previewSectionEl) return;
+    if (state.activeTournamentId) { previewSectionEl.hidden = true; return; }
+    const rows = state.previews.filter(preview => !state.game || preview.game_type === state.game);
+    if (!rows.length) { previewSectionEl.hidden = true; return; }
+    previewSectionEl.hidden = false;
+    previewSectionEl.classList.toggle('collapsed', state.previewCollapsed);
+    previewMetaEl.textContent = `未来 ${state.previewDays} 天 · ${rows.length} 项赛事`;
+    previewToggleEl.textContent = state.previewCollapsed ? '展开' : '收起';
+    previewToggleEl.setAttribute('aria-expanded', state.previewCollapsed ? 'false' : 'true');
+    previewListEl.innerHTML = rows.map(previewItem).join('');
+}
+
+async function loadPreviews() {
+    try {
+        const data = await sharedApi('/tournaments/previews');
+        state.previews = data.previews || [];
+        state.previewDays = data.days || 0;
+        renderPreviews();
+    } catch (error) {
+        console.warn('[previews]', error.message);
+    }
+}
+
+function togglePreviewSection() {
+    state.previewCollapsed = !state.previewCollapsed;
+    localStorage.setItem('previewCollapsed', state.previewCollapsed ? '1' : '0');
+    renderPreviews();
+}
+
 function setTournamentViewMode(mode) {
     state.viewMode = mode === 'compact' ? 'compact' : 'detail';
     localStorage.setItem('tournamentViewMode', state.viewMode);
@@ -128,6 +185,8 @@ function applyViewMode() {
         tournamentsEl.classList.toggle('ar-compact', state.viewMode === 'compact' && !state.activeTournamentId);
         tournamentsEl.classList.toggle('ar-focus', Boolean(state.activeTournamentId));
     }
+    // 筛选栏只作用于列表，详情页隐藏
+    if (filterBarEl) filterBarEl.hidden = Boolean(state.activeTournamentId);
     if (!viewModeToggleEl) return;
     viewModeToggleEl.hidden = Boolean(state.activeTournamentId);
     viewModeToggleEl.querySelectorAll('button[data-view-mode]').forEach(button => {
@@ -135,11 +194,15 @@ function applyViewMode() {
     });
 }
 
-function updateTournamentUrl() {
+function updateTournamentUrl(push = false) {
     const url = new URL(location.href);
     if (state.activeTournamentId) url.searchParams.set('tournament', state.activeTournamentId);
     else url.searchParams.delete('tournament');
-    history.replaceState(null, '', url);
+    if (push) {
+        // 从列表进入详情时新增历史记录，浏览器后退即回到列表
+        url.hash = '';
+        history.pushState({ fromList: true }, '', url);
+    } else history.replaceState(history.state, '', url);
 }
 
 function escapeHtml(value) {
@@ -216,7 +279,7 @@ function stageMap(stages) {
     return `<div class="tournament-stage-map">${stages.map((group, index) => {
         const metrics = stageItemMetrics(group);
         const done = metrics.total > 0 && metrics.finished >= metrics.total;
-        return `<a class="stage-map-node ${done ? 'done' : ''}" href="#stage-${escapeHtml(group.key)}" onclick="openTournamentStage('${escapeHtml(group.key)}')">
+        return `<a class="stage-map-node ${done ? 'done' : ''}" href="#stage-${escapeHtml(group.key)}" onclick="openTournamentStage('${escapeHtml(group.key)}', event)">
             <span>${index + 1}</span>
             <strong>${escapeHtml(group.label)}</strong>
             <small>${metrics.finished}/${metrics.total} 已结算</small>
@@ -295,6 +358,9 @@ function tournamentLogoHtml(tournament) {
     return tournamentLogo(tournament.name, tournament.game_type, tournament.logo_url) || tournamentMark(tournament);
 }
 
+// 卡片只显示日期：沿用 formatDateTime 的年份规则，去掉时分
+const formatDay = value => formatDateTime(value).split(' ')[0];
+
 function tournamentCard(tournament) {
     const finished = tournament.finished_count || 0;
     const total = tournament.match_count || 0;
@@ -305,7 +371,7 @@ function tournamentCard(tournament) {
     const progress = total ? Math.round((finished / total) * 100) : 0;
     const stateLabel = ongoing ? '进行中' : isDone ? '已结束' : '筹备中';
     const stateClass = ongoing ? 'live' : isDone ? 'done' : 'wait';
-    return `<article class="ar-card ${tournament.game_type} ${stateClass}" data-id="${tournament.id}" onclick="openTournamentPage(${tournament.id})" tabindex="0" role="button" aria-label="查看 ${escapeHtml(tournament.name)}">
+    return `<article class="ar-card ${tournament.game_type} ${stateClass}" data-id="${tournament.id}" onclick="enterTournament(${tournament.id})" tabindex="0" role="button" aria-label="查看 ${escapeHtml(tournament.name)}">
         <div class="ar-card-logo">${tournamentLogoHtml(tournament)}</div>
         <div class="ar-card-body">
             <div class="ar-card-title">
@@ -315,12 +381,12 @@ function tournamentCard(tournament) {
             <p class="ar-card-meta">
                 <span class="game-pill ${tournament.game_type}">${gameName(tournament.game_type)}</span>
                 ${tierBadge(tournament)}
-                <span>${formatDateTime(tournament.begin_at)}${tournament.end_at ? ` - ${formatDateTime(tournament.end_at)}` : ''}</span>
+                <span>${formatDay(tournament.begin_at)}${tournament.end_at ? ` - ${formatDay(tournament.end_at)}` : ''}</span>
             </p>
             <div class="ar-progress" title="完成 ${progress}%"><i style="width:${progress}%"></i></div>
             <div class="ar-card-stats">
                 <span><b>${total}</b>比赛</span>
-                <span><b>${finished}</b>已结算</span>
+                ${isDone ? '' : `<span><b>${finished}</b>已结算</span>`}
                 ${upcoming ? `<span><b>${upcoming}</b>待开始</span>` : ''}
                 <span><b>${predictions}</b>人次预测</span>
                 <span class="ar-pct">${progress}%</span>
@@ -387,11 +453,43 @@ async function openTournamentPage(id) {
     }
 }
 
+// 列表卡片入口：记录列表滚动位置并新增历史记录
+function enterTournament(id) {
+    state.listScrollY = window.scrollY;
+    state.activeTournamentId = String(id);
+    updateTournamentUrl(true);
+    window.scrollTo(0, 0);
+    openTournamentPage(id);
+}
+
+function showTournamentList() {
+    state.activeTournamentId = '';
+    applyViewMode();
+    const restore = () => window.scrollTo(0, state.listScrollY || 0);
+    // 已加载过列表时直接重绘并恢复滚动位置，避免重新请求后跳回顶部
+    if (state.tournaments.length) {
+        syncGameSeg();
+        renderArchiveList();
+        requestAnimationFrame(restore);
+    } else loadTournaments().then(restore);
+}
+
 function backToTournamentList() {
+    // 由列表进入时等同浏览器后退，避免历史记录里叠出重复的列表页
+    if (history.state?.fromList) { history.back(); return; }
     state.activeTournamentId = '';
     updateTournamentUrl();
-    loadTournaments();
+    showTournamentList();
 }
+
+window.addEventListener('popstate', () => {
+    const id = new URLSearchParams(location.search).get('tournament') || '';
+    if (id === state.activeTournamentId) return; // 仅 hash 变化（阶段/比赛锚点）
+    if (id) {
+        state.activeTournamentId = id;
+        openTournamentPage(id);
+    } else showTournamentList();
+});
 
 function focusTournamentMatch(matchId) {
     const row = document.getElementById(`match-row-${matchId}`);
@@ -404,9 +502,14 @@ function focusTournamentMatch(matchId) {
     window.setTimeout(() => row.classList.remove('match-row-highlight'), 1800);
 }
 
-function openTournamentStage(stageKey) {
+// 阶段条吸顶：手动滚动并让出阶段条高度，不写入 hash，避免后退时逐个回退阶段锚点
+function openTournamentStage(stageKey, event) {
+    event?.preventDefault();
     const stage = document.getElementById(`stage-${stageKey}`);
-    if (stage && stage.tagName === 'DETAILS') stage.open = true;
+    if (!stage) return;
+    if (stage.tagName === 'DETAILS') stage.open = true;
+    const barHeight = document.querySelector('.tournament-stage-map')?.offsetHeight || 0;
+    window.scrollTo({ top: stage.getBoundingClientRect().top + window.scrollY - barHeight - 8, behavior: 'smooth' });
 }
 
 function closeDetailModal() {
@@ -432,6 +535,7 @@ async function loadTournaments() {
     if (!tournamentsEl) return;
     applyViewMode();
     if (state.activeTournamentId) {
+        if (previewSectionEl) previewSectionEl.hidden = true;
         await openTournamentPage(state.activeTournamentId);
         return;
     }
@@ -446,6 +550,7 @@ async function loadTournaments() {
     renderBrandChips();
     renderTierHint();
     renderArchiveList();
+    renderPreviews();
 }
 
 window.setGame = setGame;
@@ -468,8 +573,10 @@ window.setTier = setTier;
     toggle();
 })();
 window.setTournamentViewMode = setTournamentViewMode;
+window.togglePreviewSection = togglePreviewSection;
 window.loadTournaments = loadTournaments;
 window.openTournamentPage = openTournamentPage;
+window.enterTournament = enterTournament;
 window.backToTournamentList = backToTournamentList;
 window.showMatchPredictions = showMatchPredictions;
 window.focusTournamentMatch = focusTournamentMatch;
@@ -492,3 +599,4 @@ loadTournaments().catch(error => {
     if (tournamentsEl) tournamentsEl.innerHTML = `<div class="ar-empty"><h3>加载失败</h3><p>${escapeHtml(error.message)}</p></div>`;
     console.error(error);
 });
+loadPreviews();

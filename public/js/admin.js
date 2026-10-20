@@ -96,14 +96,14 @@ function teamLogoSrc(url) {
 function teamLogoImg(url) {
     const src = teamLogoSrc(url);
     return src
-        ? `<img class="ad-logo" src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">`
-        : '<span class="ad-logo ad-logo-empty"></span>';
+        ? `<img class="ops-logo" src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">`
+        : '<span class="ops-logo ops-logo-empty"></span>';
 }
 
 // 赛事 logo：与前台一致（手动上传 > 名称匹配精选映射），PandaScore 远程 logo 不使用
 function tournamentLogoImg(t) {
     const html = tournamentLogo(t.name, t.game_type, t.logo_url && t.logo_url.startsWith('/uploads/') ? t.logo_url : null);
-    return html ? `<span class="ad-tlogo">${html}</span>` : '<span class="ad-tlogo ad-logo-empty"></span>';
+    return html ? `<span class="ops-tlogo">${html}</span>` : '<span class="ops-tlogo ops-logo-empty"></span>';
 }
 
 const GAME_LABELS = { cs2: 'CS2', valorant: 'Valorant' };
@@ -121,10 +121,10 @@ function isOverdue(match) {
 }
 
 function matchStatusPill(match) {
-    if (match.is_forfeit) return '<span class="ad-pill warn">弃权</span>';
-    if (isOverdue(match)) return '<span class="ad-pill bad">待结算</span>';
+    if (match.is_forfeit) return '<span class="ops-pill warn">弃权</span>';
+    if (isOverdue(match)) return '<span class="ops-pill bad">待结算</span>';
     const cls = { upcoming: 'info', ongoing: 'live', finished: 'muted', cancelled: 'muted', postponed: 'warn' }[match.status] || 'muted';
-    return `<span class="ad-pill ${cls}">${esc(STATUS_LABELS[match.status] || match.status)}</span>`;
+    return `<span class="ops-pill ${cls}">${esc(STATUS_LABELS[match.status] || match.status)}</span>`;
 }
 
 // 各赛制的合法比分（录赛果快捷按钮），与服务端 isValidScore 口径一致
@@ -139,10 +139,10 @@ function legalScores(format) {
 // ---------- 提示 ----------
 
 function toast(message, type = 'ok') {
-    const box = $('#adToasts');
+    const box = $('#opsToasts');
     if (!box) return;
     const el = document.createElement('div');
-    el.className = `ad-toast ${type}`;
+    el.className = `ops-toast ${type}`;
     el.textContent = message;
     box.appendChild(el);
     setTimeout(() => el.classList.add('out'), 2600);
@@ -154,27 +154,27 @@ function toast(message, type = 'ok') {
 const modal = { onSubmit: null, busy: false };
 
 function openModal({ title, hint = '', body, submitText = '保存', danger = false, onSubmit, onOpen }) {
-    $('#adModalTitle').textContent = title;
-    $('#adModalHint').textContent = hint;
-    $('#adModalForm').innerHTML = body;
-    const submit = $('#adModalSubmit');
+    $('#opsModalTitle').textContent = title;
+    $('#opsModalHint').textContent = hint;
+    $('#opsModalForm').innerHTML = body;
+    const submit = $('#opsModalSubmit');
     submit.textContent = submitText;
     submit.classList.toggle('danger', danger);
     submit.disabled = false;
-    $('#adModalError').hidden = true;
+    $('#opsModalError').hidden = true;
     modal.onSubmit = onSubmit;
     modal.busy = false;
-    $('#adModal').hidden = false;
+    $('#opsModal').hidden = false;
     document.body.classList.add('modal-open');
-    if (onOpen) onOpen($('#adModalForm'));
-    const first = $('#adModalForm').querySelector('input:not([type=radio]):not([type=hidden]), select, textarea');
+    if (onOpen) onOpen($('#opsModalForm'));
+    const first = $('#opsModalForm').querySelector('input:not([type=radio]):not([type=hidden]), select, textarea');
     if (first) first.focus();
 }
 
 function closeModal() {
     if (modal.busy) return;
-    $('#adModal').hidden = true;
-    $('#adModalForm').innerHTML = '';
+    $('#opsModal').hidden = true;
+    $('#opsModalForm').innerHTML = '';
     modal.onSubmit = null;
     document.body.classList.remove('modal-open');
 }
@@ -182,9 +182,9 @@ function closeModal() {
 async function submitModal(event) {
     event.preventDefault();
     if (!modal.onSubmit || modal.busy) return;
-    const form = $('#adModalForm');
+    const form = $('#opsModalForm');
     const data = Object.fromEntries(new FormData(form).entries());
-    const submit = $('#adModalSubmit');
+    const submit = $('#opsModalSubmit');
     modal.busy = true;
     submit.disabled = true;
     try {
@@ -196,7 +196,7 @@ async function submitModal(event) {
         modal.busy = false;
         submit.disabled = false;
         // 错误留在对话框内显示，便于修改后重试
-        const box = $('#adModalError');
+        const box = $('#opsModalError');
         box.textContent = error.message || '操作失败';
         box.hidden = false;
     }
@@ -204,12 +204,12 @@ async function submitModal(event) {
 
 // 危险操作的二次确认：沿用同一对话框
 function confirmAction({ title, message, confirmText = '确认', danger = true, run }) {
-    openModal({ title, body: `<p class="ad-confirm-text">${esc(message)}</p>`, submitText: confirmText, danger, onSubmit: run });
+    openModal({ title, body: `<p class="ops-confirm-text">${esc(message)}</p>`, submitText: confirmText, danger, onSubmit: run });
 }
 
 // 表单控件：统一用 name 取值（FormData），不依赖全局 id
 function field(label, control, { hint = '', wide = false } = {}) {
-    return `<label class="ad-field${wide ? ' wide' : ''}"><span>${esc(label)}</span>${control}${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
+    return `<label class="ops-field${wide ? ' wide' : ''}"><span>${esc(label)}</span>${control}${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
 }
 
 function input(name, value = '', attrs = '') {
@@ -232,21 +232,21 @@ function isAdmin() {
 function renderAuth() {
     const host = $('#auth');
     if (!host) return;
-    let slot = $('#adAuthSlot');
+    let slot = $('#opsAuthSlot');
     if (!slot) {
         slot = document.createElement('span');
-        slot.id = 'adAuthSlot';
-        slot.className = 'ad-auth-slot';
+        slot.id = 'opsAuthSlot';
+        slot.className = 'ops-auth-slot';
         host.prepend(slot);
     }
     slot.innerHTML = state.user
-        ? `<span class="ad-user">${esc(state.user.username)}${state.user.role === 'admin' ? '<em>管理员</em>' : ''}</span><button type="button" class="ad-btn ghost sm" data-act="logout">退出</button>`
+        ? `<span class="ops-user">${esc(state.user.username)}${state.user.role === 'admin' ? '<em>管理员</em>' : ''}</span><button type="button" class="ops-btn ghost sm" data-act="logout">退出</button>`
         : '';
 }
 
 function renderGate() {
-    const gate = $('#adGate');
-    const app = $('#adApp');
+    const gate = $('#opsGate');
+    const app = $('#opsApp');
     if (isAdmin()) {
         gate.hidden = true;
         app.hidden = false;
@@ -255,18 +255,18 @@ function renderGate() {
     app.hidden = true;
     gate.hidden = false;
     gate.innerHTML = state.user
-        ? `<div class="ad-gate-card">
+        ? `<div class="ops-gate-card">
             <h2>无访问权限</h2>
             <p>当前账号 <b>${esc(state.user.username)}</b> 不是管理员。</p>
-            <div class="ad-gate-actions"><a class="ad-btn ghost" href="/">返回首页</a><button type="button" class="ad-btn" data-act="logout">切换账号</button></div>
+            <div class="ops-gate-actions"><a class="ops-btn ghost" href="/">返回首页</a><button type="button" class="ops-btn" data-act="logout">切换账号</button></div>
         </div>`
-        : `<form class="ad-gate-card" id="adLoginForm">
+        : `<form class="ops-gate-card" id="opsLoginForm">
             <p class="eyebrow">Admin Console</p>
             <h2>管理员登录</h2>
             ${field('用户名', '<input name="username" autocomplete="username" required>')}
             ${field('密码', '<input name="password" type="password" autocomplete="current-password" required>')}
-            <p id="adLoginError" class="ad-modal-error" hidden></p>
-            <button type="submit" class="ad-btn block">登录</button>
+            <p id="opsLoginError" class="ops-modal-error" hidden></p>
+            <button type="submit" class="ops-btn block">登录</button>
         </form>`;
     const first = gate.querySelector('input');
     if (first) first.focus();
@@ -288,7 +288,7 @@ async function login(event) {
         renderGate();
         if (isAdmin()) await loadAll();
     } catch (error) {
-        const box = $('#adLoginError');
+        const box = $('#opsLoginError');
         box.textContent = error.message;
         box.hidden = false;
         button.disabled = false;
@@ -309,7 +309,7 @@ function logout() {
 
 function setTab(name, { updateHash = true } = {}) {
     state.tab = TABS.includes(name) ? name : 'overview';
-    $$('#adNav button[data-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === state.tab));
+    $$('#opsNav button[data-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === state.tab));
     if (updateHash) history.replaceState(null, '', `#${state.tab}`);
     render();
 }
@@ -329,7 +329,7 @@ function setGame(game) {
 }
 
 function syncGameSeg() {
-    $$('#adGameSeg button[data-game]').forEach(btn => btn.classList.toggle('active', btn.dataset.game === state.game));
+    $$('#opsGameSeg button[data-game]').forEach(btn => btn.classList.toggle('active', btn.dataset.game === state.game));
 }
 
 function renderNavCounts() {
@@ -340,10 +340,10 @@ function renderNavCounts() {
         users: state.users.length,
         predictions: state.predictions.length
     };
-    $$('#adNav b[data-count]').forEach(el => { el.textContent = state.loaded ? counts[el.dataset.count] : ''; });
+    $$('#opsNav b[data-count]').forEach(el => { el.textContent = state.loaded ? counts[el.dataset.count] : ''; });
     // 待结算比赛数：在"比赛"上加红点提示
     const overdue = state.matches.filter(isOverdue).length;
-    const matchBtn = $('#adNav button[data-tab=matches]');
+    const matchBtn = $('#opsNav button[data-tab=matches]');
     if (matchBtn) matchBtn.classList.toggle('has-alert', overdue > 0);
 }
 
@@ -352,27 +352,35 @@ function renderNavCounts() {
 const SYNC_STATUS_LABELS = { running: '进行中', success: '成功', failed: '失败', skipped: '跳过' };
 
 function renderSyncStatus(sync = {}) {
-    const badge = $('#adSyncBadge');
-    const info = $('#adSyncInfo');
+    const badge = $('#opsSyncBadge');
+    const info = $('#opsSyncInfo');
+    // 用户正在编辑时不要覆盖输入框
+    const daysInput = $('#opsPreviewDays');
+    if (daysInput && document.activeElement !== daysInput) daysInput.value = sync.preview_days ?? '';
     const set = (text, cls = '', detail = '') => {
         badge.textContent = text;
-        badge.className = `ad-badge ${cls}`;
+        badge.className = `ops-badge ${cls}`;
         info.textContent = detail;
     };
-    if (!sync.configured) return set('未配置同步', 'warn');
-    if (!sync.enabled) return set('同步已停用', 'warn');
-    if (sync.running) return set('同步进行中', 'live');
+    const previewRun = sync.preview_last_run;
+    const previewDetail = sync.preview_days
+        ? `预告前瞻 ${sync.preview_days} 天 · ${previewRun ? `预告${SYNC_STATUS_LABELS[previewRun.status] || previewRun.status} ${fmtTime(previewRun.started_at)}` : '尚未刷新'}`
+        : '';
+    if (!sync.configured) return set('未配置同步', 'warn', previewDetail);
+    if (!sync.enabled) return set('同步已停用', 'warn', previewDetail);
+    if (sync.running) return set('同步进行中', 'live', previewDetail);
     const run = sync.last_run;
-    if (!run) return set('等待首次同步');
+    if (!run) return set('等待首次同步', '', previewDetail);
     const parts = [`开始 ${fmtTime(run.started_at)}`];
     if (run.finished_at) parts.push(`完成 ${fmtTime(run.finished_at)}`);
     if (run.status === 'success') parts.push(`写入 赛事 ${run.tournaments_upserted} · 队伍 ${run.teams_upserted} · 比赛 ${run.matches_upserted}`);
     if (run.message) parts.push(run.message);
+    if (previewDetail) parts.push(previewDetail);
     set(`上次同步${SYNC_STATUS_LABELS[run.status] || run.status}`, run.status === 'success' ? 'ok' : run.status === 'failed' ? 'bad' : 'warn', parts.join(' · '));
 }
 
 async function syncNow() {
-    const button = $('#adSyncBtn');
+    const button = $('#opsSyncBtn');
     button.disabled = true;
     renderSyncStatus({ configured: true, enabled: true, running: true });
     try {
@@ -386,13 +394,29 @@ async function syncNow() {
     }
 }
 
+// 保存赛事预告前瞻天数（只影响远期赛事预告，不改变比赛同步窗口）
+async function savePreviewDays() {
+    const days = Number($('#opsPreviewDays')?.value);
+    if (!Number.isInteger(days) || days < 7 || days > 365) throw new Error('预告天数需为 7-365 的整数');
+    const data = await api('/admin/sync/settings', { method: 'PUT', body: { preview_days: days } });
+    toast(`预告前瞻已设为 ${days} 天`);
+    renderSyncStatus(data.sync);
+}
+
+// 立即刷新远期赛事预告（赛事级，不导入远期比赛）
+async function syncPreviews() {
+    const data = await api('/admin/sync/previews', { method: 'POST' });
+    toast(data.message || '赛事预告已刷新');
+    await loadAll();
+}
+
 // ---------- 数据加载 ----------
 
 async function loadAll() {
     if (!isAdmin()) return;
     syncGameSeg();
     state.loading = true;
-    if (!state.loaded) $('#adView').innerHTML = '<div class="ad-loading">加载后台数据…</div>';
+    if (!state.loaded) $('#opsView').innerHTML = '<div class="ops-loading">加载后台数据…</div>';
     const q = state.game ? `game_type=${encodeURIComponent(state.game)}` : '';
     try {
         const [stats, tournaments, teams, matchGroups, users, predictions] = await Promise.all([
@@ -418,7 +442,7 @@ async function loadAll() {
         state.loaded = true;
         renderSyncStatus(stats.sync);
     } catch (error) {
-        if (!state.loaded) $('#adView').innerHTML = `<div class="ad-empty">加载失败：${esc(error.message)}</div>`;
+        if (!state.loaded) $('#opsView').innerHTML = `<div class="ops-empty">加载失败：${esc(error.message)}</div>`;
         toast(error.message, 'bad');
         return;
     } finally {
@@ -440,22 +464,22 @@ function tableBlock(tab, columns, rows, renderRow, emptyText = '当前筛选下�
     const head = columns.map(([title, cls = '']) => `<th class="${cls}">${esc(title)}</th>`).join('');
     const body = rows.length
         ? rows.slice(0, limit).map(renderRow).join('')
-        : `<tr class="ad-empty-row"><td colspan="${columns.length}">${esc(emptyText)}</td></tr>`;
+        : `<tr class="ops-empty-row"><td colspan="${columns.length}">${esc(emptyText)}</td></tr>`;
     const more = rows.length > limit
-        ? `<button type="button" class="ad-btn ghost sm" data-act="more" data-tab="${tab}">显示更多（剩余 ${rows.length - limit} 条）</button>`
+        ? `<button type="button" class="ops-btn ghost sm" data-act="more" data-tab="${tab}">显示更多（剩余 ${rows.length - limit} 条）</button>`
         : '';
-    return `<div class="ad-table-meta"><span>共 ${rows.length} 条${rows.length > limit ? ` · 显示前 ${limit} 条` : ''}</span></div>
-        <div class="ad-table-wrap"><table class="ad-table ad-table-${tab}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
-        ${more ? `<div class="ad-table-more">${more}</div>` : ''}`;
+    return `<div class="ops-table-meta"><span>共 ${rows.length} 条${rows.length > limit ? ` · 显示前 ${limit} 条` : ''}</span></div>
+        <div class="ops-table-wrap"><table class="ops-table ops-table-${tab}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+        ${more ? `<div class="ops-table-more">${more}</div>` : ''}`;
 }
 
 // 行内操作按钮：统一 data-act 委托，避免内联 onclick
 function act(label, action, id, cls = '') {
-    return `<button type="button" class="ad-act ${cls}" data-act="${action}" data-id="${id}">${esc(label)}</button>`;
+    return `<button type="button" class="ops-act ${cls}" data-act="${action}" data-id="${id}">${esc(label)}</button>`;
 }
 
 function searchBox(tab, placeholder) {
-    return `<label class="ad-search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 1 0 4.55 13.45l4.25 4.25 1.4-1.4-4.25-4.25A7.5 7.5 0 0 0 10.5 3Zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z" fill="currentColor"/></svg><input type="search" data-filter="q" value="${esc(state.filters[tab].q)}" placeholder="${esc(placeholder)}" autocomplete="off"></label>`;
+    return `<label class="ops-search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 1 0 4.55 13.45l4.25 4.25 1.4-1.4-4.25-4.25A7.5 7.5 0 0 0 10.5 3Zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z" fill="currentColor"/></svg><input type="search" data-filter="q" value="${esc(state.filters[tab].q)}" placeholder="${esc(placeholder)}" autocomplete="off"></label>`;
 }
 
 function filterSelect(tab, key, options) {
@@ -463,8 +487,8 @@ function filterSelect(tab, key, options) {
 }
 
 function toolbar(title, controls, createAction = '', createLabel = '') {
-    return `<div class="ad-panel-head"><h2>${esc(title)}</h2>${createAction ? `<button type="button" class="ad-btn" data-act="${createAction}">+ ${esc(createLabel)}</button>` : ''}</div>
-        <div class="ad-toolbar">${controls}</div>`;
+    return `<div class="ops-panel-head"><h2>${esc(title)}</h2>${createAction ? `<button type="button" class="ops-btn" data-act="${createAction}">+ ${esc(createLabel)}</button>` : ''}</div>
+        <div class="ops-toolbar">${controls}</div>`;
 }
 
 // ---------- 筛选 ----------
@@ -518,7 +542,7 @@ function filteredPredictions() {
 
 function overviewView() {
     const s = state.stats || {};
-    const card = (key, label, tab, sub = '') => `<button type="button" class="ad-stat" data-act="goto" data-tab="${tab}">
+    const card = (key, label, tab, sub = '') => `<button type="button" class="ops-stat" data-act="goto" data-tab="${tab}">
         <b>${s[key] ?? 0}</b><span>${esc(label)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</button>`;
     const overdue = state.matches.filter(isOverdue).sort((a, b) => new Date(a.match_time) - new Date(b.match_time));
     const now = Date.now();
@@ -527,14 +551,14 @@ function overviewView() {
         .sort((a, b) => new Date(a.match_time) - new Date(b.match_time))
         .slice(0, 8);
     const disabled = state.tournaments.filter(t => !t.is_active).length;
-    const row = (m, actions) => `<li class="ad-brief">
-        <span class="ad-brief-time">${fmtTime(m.match_time)}</span>
-        <span class="ad-brief-main"><strong>${esc(m.team1_name)} <em>vs</em> ${esc(m.team2_name)}</strong><small>${esc(m.tournament_name)} · ${esc(m.format)}</small></span>
-        <span class="ad-brief-act">${actions}</span>
+    const row = (m, actions) => `<li class="ops-brief">
+        <span class="ops-brief-time">${fmtTime(m.match_time)}</span>
+        <span class="ops-brief-main"><strong>${esc(m.team1_name)} <em>vs</em> ${esc(m.team2_name)}</strong><small>${esc(m.tournament_name)} · ${esc(m.format)}</small></span>
+        <span class="ops-brief-act">${actions}</span>
     </li>`;
-    return `<section class="ad-panel">
-        <div class="ad-panel-head"><h2>概览</h2><span class="ad-muted">${state.game ? esc(GAME_LABELS[state.game]) : '全部游戏'}</span></div>
-        <div class="ad-stats">
+    return `<section class="ops-panel">
+        <div class="ops-panel-head"><h2>概览</h2><span class="ops-muted">${state.game ? esc(GAME_LABELS[state.game]) : '全部游戏'}</span></div>
+        <div class="ops-stats">
             ${card('matches', '比赛', 'matches', overdue.length ? `${overdue.length} 场待结算` : '')}
             ${card('tournaments', '赛事', 'tournaments', disabled ? `${disabled} 个已禁用` : '')}
             ${card('teams', '队伍', 'teams')}
@@ -542,18 +566,18 @@ function overviewView() {
             ${card('predictions', '预测总数', 'predictions')}
         </div>
     </section>
-    <div class="ad-overview-grid">
-        <section class="ad-panel">
-            <div class="ad-panel-head"><h2>待结算比赛</h2>${overdue.length ? `<button type="button" class="ad-btn ghost sm" data-act="goto-todo">查看全部</button>` : ''}</div>
+    <div class="ops-overview-grid">
+        <section class="ops-panel">
+            <div class="ops-panel-head"><h2>待结算比赛</h2>${overdue.length ? `<button type="button" class="ops-btn ghost sm" data-act="goto-todo">查看全部</button>` : ''}</div>
             ${overdue.length
-                ? `<ul class="ad-brief-list">${overdue.slice(0, 8).map(m => row(m, act('录赛果', 'match-result', m.id, 'primary') + act('弃权', 'match-forfeit', m.id))).join('')}</ul>`
-                : '<div class="ad-empty sm">没有需要处理的比赛</div>'}
+                ? `<ul class="ops-brief-list">${overdue.slice(0, 8).map(m => row(m, act('录赛果', 'match-result', m.id, 'primary') + act('弃权', 'match-forfeit', m.id))).join('')}</ul>`
+                : '<div class="ops-empty sm">没有需要处理的比赛</div>'}
         </section>
-        <section class="ad-panel">
-            <div class="ad-panel-head"><h2>即将开始</h2></div>
+        <section class="ops-panel">
+            <div class="ops-panel-head"><h2>即将开始</h2></div>
             ${upcoming.length
-                ? `<ul class="ad-brief-list">${upcoming.map(m => row(m, act(m.betting_enabled ? '预测开' : '预测关', 'match-betting', m.id, m.betting_enabled ? 'on' : 'off'))).join('')}</ul>`
-                : '<div class="ad-empty sm">暂无即将开始的比赛</div>'}
+                ? `<ul class="ops-brief-list">${upcoming.map(m => row(m, act(m.betting_enabled ? '预测开' : '预测关', 'match-betting', m.id, m.betting_enabled ? 'on' : 'off'))).join('')}</ul>`
+                : '<div class="ops-empty sm">暂无即将开始的比赛</div>'}
         </section>
     </div>`;
 }
@@ -569,21 +593,21 @@ const matchesView = {
             ${filterSelect('matches', 'tournament', [['', '全部赛事'], ...state.tournaments.map(t => [t.id, t.name])])}
             ${filterSelect('matches', 'status', [['', '全部状态'], ...Object.entries(STATUS_LABELS)])}
             ${filterSelect('matches', 'betting', [['', '全部预测状态'], ['1', '预测开启'], ['0', '预测关闭']])}
-            <button type="button" class="ad-chip ${f.todo ? 'active' : ''}" data-act="toggle-todo">待结算<b>${overdue}</b></button>
-            ${state.matchesTruncated ? '<span class="ad-muted ad-note">已结算比赛仅加载最近 1000 场</span>' : ''}`,
+            <button type="button" class="ops-chip ${f.todo ? 'active' : ''}" data-act="toggle-todo">待结算<b>${overdue}</b></button>
+            ${state.matchesTruncated ? '<span class="ops-muted ops-note">已结算比赛仅加载最近 1000 场</span>' : ''}`,
         'match-create', '新增比赛');
     },
     table() {
         return tableBlock('matches', [['时间', 'nowrap'], ['对阵'], ['赛事'], ['赛制', 'center'], ['比分', 'center'], ['状态', 'center'], ['预测', 'center'], ['操作', 'right']], filteredMatches(), m => `
             <tr class="${m.status === 'cancelled' ? 'is-dim' : ''}${isOverdue(m) ? ' is-alert' : ''}">
-                <td class="nowrap ad-mono">${fmtTime(m.match_time)}</td>
-                <td><div class="ad-cell-main"><strong>${esc(m.team1_name)} <em>vs</em> ${esc(m.team2_name)}</strong><small>#${m.id}${m.name ? ` · ${esc(m.name)}` : ''}</small></div></td>
-                <td><div class="ad-cell-main"><span class="ad-ellipsis" title="${esc(m.tournament_name)}">${esc(m.tournament_name)}</span><small>${gamePill(m.game_type)}</small></div></td>
+                <td class="nowrap ops-mono">${fmtTime(m.match_time)}</td>
+                <td><div class="ops-cell-main"><strong>${esc(m.team1_name)} <em>vs</em> ${esc(m.team2_name)}</strong><small>#${m.id}${m.name ? ` · ${esc(m.name)}` : ''}</small></div></td>
+                <td><div class="ops-cell-main"><span class="ops-ellipsis" title="${esc(m.tournament_name)}">${esc(m.tournament_name)}</span><small>${gamePill(m.game_type)}</small></div></td>
                 <td class="center">${esc(m.format)}</td>
-                <td class="center ad-mono ad-score">${m.team1_score ?? '–'} : ${m.team2_score ?? '–'}</td>
+                <td class="center ops-mono ops-score">${m.team1_score ?? '–'} : ${m.team2_score ?? '–'}</td>
                 <td class="center">${matchStatusPill(m)}</td>
                 <td class="center">${act(m.betting_enabled ? '开启' : '关闭', 'match-betting', m.id, `toggle ${m.betting_enabled ? 'on' : 'off'}`)}</td>
-                <td class="right"><div class="ad-acts">${act('录赛果', 'match-result', m.id, 'primary')}${act('弃权', 'match-forfeit', m.id)}${act('编辑', 'match-edit', m.id)}${act('删除', 'match-delete', m.id, 'danger')}</div></td>
+                <td class="right"><div class="ops-acts">${act('录赛果', 'match-result', m.id, 'primary')}${act('弃权', 'match-forfeit', m.id)}${act('编辑', 'match-edit', m.id)}${act('删除', 'match-delete', m.id, 'danger')}</div></td>
             </tr>`);
     }
 };
@@ -610,14 +634,14 @@ const tournamentsView = {
         return tableBlock('tournaments', [['赛事'], ['游戏', 'center'], ['级别', 'center'], ['时间', 'nowrap'], ['比赛', 'center'], ['来源', 'center'], ['状态', 'center'], ['操作', 'right']], filteredTournaments(), t => {
             const uploaded = t.logo_url && t.logo_url.startsWith('/uploads/');
             return `<tr class="${t.is_active ? '' : 'is-dim'}">
-                <td><div class="ad-cell-id">${tournamentLogoImg(t)}<div class="ad-cell-main"><strong class="ad-ellipsis" title="${esc(t.name)}">${esc(t.name)}</strong><small>#${t.id}${t.short_name ? ` · ${esc(t.short_name)}` : ''}</small></div></div></td>
+                <td><div class="ops-cell-id">${tournamentLogoImg(t)}<div class="ops-cell-main"><strong class="ops-ellipsis" title="${esc(t.name)}">${esc(t.name)}</strong><small>#${t.id}${t.short_name ? ` · ${esc(t.short_name)}` : ''}</small></div></div></td>
                 <td class="center">${gamePill(t.game_type)}</td>
                 <td class="center nowrap">${tierPill(t)}</td>
-                <td class="nowrap ad-mono">${dateOnly(t.begin_at) || '—'}<small class="ad-block">${dateOnly(t.end_at) || ''}</small></td>
-                <td class="center ad-mono">${t.match_count}</td>
-                <td class="center"><span class="ad-pill muted">${sourceLabel(t)}</span></td>
+                <td class="nowrap ops-mono">${dateOnly(t.begin_at) || '—'}<small class="ops-block">${dateOnly(t.end_at) || ''}</small></td>
+                <td class="center ops-mono">${t.match_count}</td>
+                <td class="center"><span class="ops-pill muted">${sourceLabel(t)}</span></td>
                 <td class="center">${act(t.is_active ? '启用' : '禁用', 'tournament-toggle', t.id, `toggle ${t.is_active ? 'on' : 'off'}`)}</td>
-                <td class="right"><div class="ad-acts">${act('编辑', 'tournament-edit', t.id)}${act(uploaded ? '换 Logo' : '传 Logo', 'tournament-logo', t.id)}${uploaded ? act('删 Logo', 'tournament-logo-remove', t.id, 'danger') : ''}${act('删除', 'tournament-delete', t.id, 'danger')}</div></td>
+                <td class="right"><div class="ops-acts">${act('编辑', 'tournament-edit', t.id)}${act(uploaded ? '换 Logo' : '传 Logo', 'tournament-logo', t.id)}${uploaded ? act('删 Logo', 'tournament-logo-remove', t.id, 'danger') : ''}${act('删除', 'tournament-delete', t.id, 'danger')}</div></td>
             </tr>`;
         });
     }
@@ -635,12 +659,12 @@ const teamsView = {
     table() {
         return tableBlock('teams', [['队伍'], ['简称'], ['游戏', 'center'], ['国家/地区', 'center'], ['来源', 'center'], ['操作', 'right']], filteredTeams(), t => `
             <tr>
-                <td><div class="ad-cell-id">${teamLogoImg(t.logo_url)}<div class="ad-cell-main"><strong class="ad-ellipsis">${esc(t.name)}</strong><small>#${t.id}</small></div></div></td>
+                <td><div class="ops-cell-id">${teamLogoImg(t.logo_url)}<div class="ops-cell-main"><strong class="ops-ellipsis">${esc(t.name)}</strong><small>#${t.id}</small></div></div></td>
                 <td>${esc(t.short_name || '—')}</td>
                 <td class="center">${gamePill(t.game_type)}</td>
                 <td class="center">${esc(t.country || '—')}</td>
-                <td class="center"><span class="ad-pill muted">${sourceLabel(t)}</span></td>
-                <td class="right"><div class="ad-acts">${act('编辑', 'team-edit', t.id)}${act('删除', 'team-delete', t.id, 'danger')}</div></td>
+                <td class="center"><span class="ops-pill muted">${sourceLabel(t)}</span></td>
+                <td class="right"><div class="ops-acts">${act('编辑', 'team-edit', t.id)}${act('删除', 'team-delete', t.id, 'danger')}</div></td>
             </tr>`);
     }
 };
@@ -658,12 +682,12 @@ const usersView = {
         return tableBlock('users', [['用户'], ['角色', 'center'], ['积分', 'center'], ['预测数', 'center'], ['注册时间', 'nowrap'], ['操作', 'right']], filteredUsers(), u => {
             const protectedUser = u.username === 'admin';
             return `<tr>
-                <td><div class="ad-cell-main"><strong>${esc(u.username)}</strong><small>#${u.id}</small></div></td>
-                <td class="center"><span class="ad-pill ${u.role === 'admin' ? 'info' : 'muted'}">${u.role === 'admin' ? '管理员' : '用户'}</span></td>
-                <td class="center ad-mono"><b>${u.total_score ?? 0}</b></td>
-                <td class="center ad-mono">${u.prediction_count ?? 0}</td>
-                <td class="nowrap ad-mono">${fmtTime(u.created_at)}</td>
-                <td class="right"><div class="ad-acts">${protectedUser ? '' : act(u.role === 'admin' ? '设为用户' : '设为管理', 'user-role', u.id)}${act('重置密码', 'user-password', u.id)}${protectedUser ? '' : act('删除', 'user-delete', u.id, 'danger')}</div></td>
+                <td><div class="ops-cell-main"><strong>${esc(u.username)}</strong><small>#${u.id}</small></div></td>
+                <td class="center"><span class="ops-pill ${u.role === 'admin' ? 'info' : 'muted'}">${u.role === 'admin' ? '管理员' : '用户'}</span></td>
+                <td class="center ops-mono"><b>${u.total_score ?? 0}</b></td>
+                <td class="center ops-mono">${u.prediction_count ?? 0}</td>
+                <td class="nowrap ops-mono">${fmtTime(u.created_at)}</td>
+                <td class="right"><div class="ops-acts">${protectedUser ? '' : act(u.role === 'admin' ? '设为用户' : '设为管理', 'user-role', u.id)}${act('重置密码', 'user-password', u.id)}${protectedUser ? '' : act('删除', 'user-delete', u.id, 'danger')}</div></td>
             </tr>`;
         });
     }
@@ -672,15 +696,15 @@ const usersView = {
 // ---------- 预测记录 ----------
 
 function predictionStatus(p) {
-    if (p.match_is_forfeit) return '<span class="ad-pill warn">弃权</span>';
-    if (p.match_status === 'finished') return '<span class="ad-pill muted">已结算</span>';
-    return `<span class="ad-pill info">${esc(STATUS_LABELS[p.match_status] || p.match_status)}</span>`;
+    if (p.match_is_forfeit) return '<span class="ops-pill warn">弃权</span>';
+    if (p.match_status === 'finished') return '<span class="ops-pill muted">已结算</span>';
+    return `<span class="ops-pill info">${esc(STATUS_LABELS[p.match_status] || p.match_status)}</span>`;
 }
 
 function predictionPoints(p) {
-    if (p.match_is_forfeit) return '<span class="ad-muted">不计分</span>';
-    if (p.match_status !== 'finished' || p.points_earned === null || p.points_earned === undefined) return '<span class="ad-muted">—</span>';
-    return `<b class="${p.points_earned > 0 ? 'ad-pos' : 'ad-zero'}">${p.points_earned > 0 ? '+' : ''}${p.points_earned}</b>`;
+    if (p.match_is_forfeit) return '<span class="ops-muted">不计分</span>';
+    if (p.match_status !== 'finished' || p.points_earned === null || p.points_earned === undefined) return '<span class="ops-muted">—</span>';
+    return `<b class="${p.points_earned > 0 ? 'ops-pos' : 'ops-zero'}">${p.points_earned > 0 ? '+' : ''}${p.points_earned}</b>`;
 }
 
 const predictionsView = {
@@ -688,18 +712,18 @@ const predictionsView = {
         return toolbar('预测记录', `
             ${searchBox('predictions', '搜索用户或队伍')}
             ${filterSelect('predictions', 'status', [['', '全部结算状态'], ['finished', '已结算'], ['pending', '未结算']])}
-            <span class="ad-muted ad-note">仅显示最近 500 条</span>`);
+            <span class="ops-muted ops-note">仅显示最近 500 条</span>`);
     },
     table() {
         return tableBlock('predictions', [['用户'], ['比赛'], ['预测', 'center'], ['状态', 'center'], ['得分', 'center'], ['提交时间', 'nowrap'], ['操作', 'right']], filteredPredictions(), p => `
             <tr>
                 <td><strong>${esc(p.username)}</strong></td>
-                <td><div class="ad-cell-main"><span>${esc(p.team1_name)} <em>vs</em> ${esc(p.team2_name)}</span><small>${fmtTime(p.match_time)}</small></div></td>
-                <td class="center"><span class="ad-mono ad-score">${p.predicted_team1_score} : ${p.predicted_team2_score}</span><small class="ad-block">${esc(p.predicted_winner_name)} 胜</small></td>
+                <td><div class="ops-cell-main"><span>${esc(p.team1_name)} <em>vs</em> ${esc(p.team2_name)}</span><small>${fmtTime(p.match_time)}</small></div></td>
+                <td class="center"><span class="ops-mono ops-score">${p.predicted_team1_score} : ${p.predicted_team2_score}</span><small class="ops-block">${esc(p.predicted_winner_name)} 胜</small></td>
                 <td class="center">${predictionStatus(p)}</td>
-                <td class="center ad-mono">${predictionPoints(p)}</td>
-                <td class="nowrap ad-mono">${fmtTime(p.created_at)}</td>
-                <td class="right"><div class="ad-acts">${act('删除', 'prediction-delete', p.id, 'danger')}</div></td>
+                <td class="center ops-mono">${predictionPoints(p)}</td>
+                <td class="nowrap ops-mono">${fmtTime(p.created_at)}</td>
+                <td class="right"><div class="ops-acts">${act('删除', 'prediction-delete', p.id, 'danger')}</div></td>
             </tr>`);
     }
 };
@@ -710,19 +734,19 @@ const VIEWS = { matches: matchesView, tournaments: tournamentsView, teams: teams
 
 // 整页：工具条 + 表格；筛选变化时只重绘表格，避免搜索框失焦
 function render() {
-    const host = $('#adView');
+    const host = $('#opsView');
     if (!host || !isAdmin() || !state.loaded) return;
     if (state.tab === 'overview') {
         host.innerHTML = overviewView();
         return;
     }
     const view = VIEWS[state.tab];
-    host.innerHTML = `<section class="ad-panel" data-panel="${state.tab}">${view.toolbar()}<div class="ad-table-host">${view.table()}</div></section>`;
+    host.innerHTML = `<section class="ops-panel" data-panel="${state.tab}">${view.toolbar()}<div class="ops-table-host">${view.table()}</div></section>`;
 }
 
 function renderTable() {
     const view = VIEWS[state.tab];
-    const host = $('#adView .ad-table-host');
+    const host = $('#opsView .ops-table-host');
     if (view && host) host.innerHTML = view.table();
 }
 
@@ -752,7 +776,7 @@ function createMatch() {
     openModal({
         title: '新增比赛',
         hint: '队伍列表随所选赛事的游戏自动过滤',
-        body: `<div class="ad-form-grid">
+        body: `<div class="ops-form-grid">
             ${field('赛事', select('tournament_id', state.tournaments.map(t => [t.id, `${t.name} · ${GAME_LABELS[t.game_type]}`]), first.id), { wide: true })}
             ${field('队伍 1', select('team1_id', teamOptionsFor(first.game_type)))}
             ${field('队伍 2', select('team2_id', teamOptionsFor(first.game_type)))}
@@ -785,7 +809,7 @@ function editMatch(id) {
     openModal({
         title: '编辑比赛',
         hint: `#${m.id} · ${m.team1_name} vs ${m.team2_name} · ${m.tournament_name}`,
-        body: `<div class="ad-form-grid">
+        body: `<div class="ops-form-grid">
             ${field('状态', select('status', Object.entries(STATUS_LABELS), m.status), { hint: '标记为已结算前需先录入赛果' })}
             ${field('赛制', finished ? `<input value="${esc(m.format)}" disabled><input type="hidden" name="format" value="${esc(m.format)}">` : select('format', [['BO1', 'BO1'], ['BO3', 'BO3'], ['BO5', 'BO5']], m.format), { hint: finished ? '已结算比赛不能修改赛制' : '' })}
             ${field('开赛时间', input('match_time', toLocalInput(m.match_time), 'type="datetime-local"'))}
@@ -805,18 +829,18 @@ function editMatch(id) {
 
 function setResult(id) {
     const m = requireRow(state.matches, id, '比赛');
-    const chips = legalScores(m.format).map(([a, b]) => `<button type="button" class="ad-chip" data-score="${a}:${b}">${a} : ${b}</button>`).join('');
+    const chips = legalScores(m.format).map(([a, b]) => `<button type="button" class="ops-chip" data-score="${a}:${b}">${a} : ${b}</button>`).join('');
     openModal({
         title: '录入赛果',
         hint: `${m.format} · 录入后自动结算预测积分，并锁定赛果不被同步覆盖`,
-        body: `<div class="ad-score-form">
-            <div class="ad-score-team">${esc(m.team1_name)}</div>
+        body: `<div class="ops-score-form">
+            <div class="ops-score-team">${esc(m.team1_name)}</div>
             <input name="team1_score" type="number" min="0" max="3" inputmode="numeric" value="${m.team1_score ?? ''}" required aria-label="${esc(m.team1_name)} 比分">
-            <span class="ad-score-sep">:</span>
+            <span class="ops-score-sep">:</span>
             <input name="team2_score" type="number" min="0" max="3" inputmode="numeric" value="${m.team2_score ?? ''}" required aria-label="${esc(m.team2_name)} 比分">
-            <div class="ad-score-team">${esc(m.team2_name)}</div>
+            <div class="ops-score-team">${esc(m.team2_name)}</div>
         </div>
-        <div class="ad-score-chips"><span>快捷比分</span>${chips}</div>`,
+        <div class="ops-score-chips"><span>快捷比分</span>${chips}</div>`,
         submitText: '录入并结算',
         onOpen(form) {
             form.addEventListener('click', event => {
@@ -844,7 +868,7 @@ function setForfeit(id) {
     openModal({
         title: '设置弃权',
         hint: '弃权按 1-0 记录，所有预测不计积分',
-        body: `<div class="ad-radio-list">
+        body: `<div class="ops-radio-list">
             <label><input type="radio" name="winner" value="${m.team1_id}" checked><span><b>${esc(m.team1_name)}</b> 胜（${esc(m.team2_name)} 弃权）</span></label>
             <label><input type="radio" name="winner" value="${m.team2_id}"><span><b>${esc(m.team2_name)}</b> 胜（${esc(m.team1_name)} 弃权）</span></label>
         </div>`,
@@ -882,7 +906,7 @@ const TIER_OPTIONS = [['', '自动（按名称关键词推断）'], ['1', '高�
 
 function tournamentForm(t = {}) {
     const tier = t.tier === null || t.tier === undefined ? '' : String(t.tier);
-    return `<div class="ad-form-grid">
+    return `<div class="ops-form-grid">
         ${field('名称', input('name', t.name || '', 'required'), { wide: true })}
         ${field('简称', input('short_name', t.short_name || '', 'placeholder="如：IEM 科隆"'), { hint: '主页筛选与移动端展示' })}
         ${field('游戏', select('game_type', GAME_OPTIONS, t.game_type || state.game || 'cs2'))}
@@ -990,7 +1014,7 @@ function removeTournamentLogo(id) {
 // ---------- 队伍操作 ----------
 
 function teamForm(t = {}) {
-    return `<div class="ad-form-grid">
+    return `<div class="ops-form-grid">
         ${field('名称', input('name', t.name || '', 'required'), { wide: true })}
         ${field('简称', input('short_name', t.short_name || ''))}
         ${field('游戏', select('game_type', GAME_OPTIONS, t.game_type || state.game || 'cs2'))}
@@ -1044,7 +1068,7 @@ function deleteTeam(id) {
 function createUser() {
     openModal({
         title: '新增用户',
-        body: `<div class="ad-form-grid">
+        body: `<div class="ops-form-grid">
             ${field('用户名', input('username', '', 'required autocomplete="off"'))}
             ${field('角色', select('role', [['user', '用户'], ['admin', '管理员']], 'user'))}
             ${field('密码', input('password', '', 'type="password" required autocomplete="new-password"'), { hint: '至少 6 位', wide: true })}
@@ -1128,6 +1152,8 @@ async function runAction(fn) {
 
 const ACTIONS = {
     logout,
+    'save-preview-days': savePreviewDays,
+    'sync-previews': syncPreviews,
     goto: el => setTab(el.dataset.tab),
     'goto-todo': () => { state.filters.matches.todo = true; setTab('matches'); },
     'toggle-todo': () => { state.filters.matches.todo = !state.filters.matches.todo; render(); },
@@ -1155,10 +1181,10 @@ const ACTIONS = {
 };
 
 document.addEventListener('click', event => {
-    if (event.target.closest('#adModal [data-close]')) { closeModal(); return; }
-    const tab = event.target.closest('#adNav button[data-tab]');
+    if (event.target.closest('#opsModal [data-close]')) { closeModal(); return; }
+    const tab = event.target.closest('#opsNav button[data-tab]');
     if (tab) { setTab(tab.dataset.tab); return; }
-    const game = event.target.closest('#adGameSeg button[data-game]');
+    const game = event.target.closest('#opsGameSeg button[data-game]');
     if (game) { setGame(game.dataset.game); return; }
     const el = event.target.closest('[data-act]');
     if (!el || !ACTIONS[el.dataset.act]) return;
@@ -1185,17 +1211,17 @@ document.addEventListener('input', onFilter);
 document.addEventListener('change', event => { if (event.target.matches('select[data-filter]')) onFilter(event); });
 
 document.addEventListener('submit', event => {
-    if (event.target.id === 'adLoginForm') login(event);
-    else if (event.target.id === 'adModalForm') submitModal(event);
+    if (event.target.id === 'opsLoginForm') login(event);
+    else if (event.target.id === 'opsModalForm') submitModal(event);
 });
 
 document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !$('#adModal').hidden) closeModal();
+    if (event.key === 'Escape' && !$('#opsModal').hidden) closeModal();
 });
 
 window.addEventListener('hashchange', () => setTab(tabFromHash(), { updateHash: false }));
-$('#adSyncBtn').addEventListener('click', () => runAction(syncNow));
-$('#adReloadBtn').addEventListener('click', () => runAction(async () => { await loadAll(); toast('已刷新'); }));
+$('#opsSyncBtn').addEventListener('click', () => runAction(syncNow));
+$('#opsReloadBtn').addEventListener('click', () => runAction(async () => { await loadAll(); toast('已刷新'); }));
 // 主题切换后赛事 logo 由 tournament-logos.js 换源；表格无需重绘
 
 // ---------- 启动 ----------
@@ -1203,5 +1229,5 @@ $('#adReloadBtn').addEventListener('click', () => runAction(async () => { await 
 renderAuth();
 renderGate();
 state.tab = tabFromHash();
-$$('#adNav button[data-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === state.tab));
+$$('#opsNav button[data-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === state.tab));
 loadAll();
