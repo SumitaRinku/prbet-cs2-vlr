@@ -1,0 +1,183 @@
+/* ============================================================
+   个人中心
+   沿用站点扁平电竞底子（2px 圆角、surface 变量、深底标题条），与队伍中心 / 赛事回看一致；
+   主题切换继续靠 :root / [data-theme=dark] 变量。
+   ============================================================ */
+.pc-page{max-width:1180px;padding:12px;
+    --pc-exact:#2f8f5b;--pc-correct:var(--success-color);--pc-wrong:var(--danger-color);
+    --pc-pending:var(--primary-color);--pc-forfeit:var(--warning-color)}
+.pc-content{display:grid;gap:10px;min-width:0}
+
+/* ---------- 概览 ---------- */
+.pc-hero{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px 20px;padding:14px 16px;background:var(--surface-1);border:1px solid var(--border-color);border-top:3px solid var(--primary-color)}
+.pc-id{display:flex;align-items:center;gap:12px;min-width:0}
+.pc-avatar{flex:0 0 auto;display:grid;place-items:center;width:52px;height:52px;border-radius:2px;background:var(--primary-color);color:#fff;font-size:22px;font-weight:900}
+.pc-id-text{min-width:0}
+.pc-id-text h2{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:20px;line-height:1.2;color:var(--text-heading)}
+.pc-id-text p{display:flex;align-items:center;gap:8px;margin:4px 0 0;color:var(--text-secondary);font-size:12px;font-weight:700}
+.pc-id-text p b{color:var(--primary-color);font-size:15px;font-weight:900;font-variant-numeric:tabular-nums}
+.pc-role{padding:1px 7px;border-radius:2px;background:var(--surface-5);color:var(--text-secondary);font-size:10px;font-weight:800}
+.pc-role.admin{background:rgba(199,148,53,.16);color:#8a6200}
+.pc-stats{display:grid;grid-template-columns:repeat(5,84px);gap:6px;margin:0}
+.pc-stats div{padding:7px 4px;background:var(--surface-input);border:1px solid var(--border-color);text-align:center}
+.pc-stats dt{color:var(--text-secondary);font-size:10px;font-weight:800}
+.pc-stats dd{margin:2px 0 0;color:var(--text-primary);font-size:18px;font-weight:900;line-height:1.1;font-variant-numeric:tabular-nums}
+.pc-stats dd small{margin-left:1px;font-size:11px;color:var(--text-secondary)}
+.pc-form-strip{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding-top:10px;border-top:1px solid var(--border-soft);color:var(--text-secondary);font-size:11px;font-weight:800}
+.pc-dots{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.pc-dots em{font-style:normal;font-weight:700}
+.pc-dot{display:block;width:12px;height:12px;border-radius:2px;background:var(--surface-5)}
+.pc-dot.exact{background:var(--pc-exact);box-shadow:0 0 0 2px rgba(47,143,91,.28)}
+.pc-dot.correct{background:var(--pc-correct)}
+.pc-dot.wrong{background:var(--pc-wrong)}
+
+/* ---------- 标签页 ---------- */
+.pc-tabs{display:flex;gap:2px;padding:2px;background:var(--surface-4);border:1px solid var(--border-color)}
+.pc-tabs button{width:auto;flex:1 1 0;min-height:36px;padding:6px 14px;border:0;border-radius:0;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:800;box-shadow:none}
+.pc-tabs button:hover{background:var(--surface-5);color:var(--text-primary);filter:none;transform:none}
+.pc-tabs button.active{background:var(--primary-color);color:#fff}
+.pc-tabs button:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+
+/* ---------- 预测记录 ---------- */
+.pc-panel{min-width:0;background:var(--surface-1);border:1px solid var(--border-color)}
+.pc-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px;background:var(--surface-4);border-bottom:1px solid var(--border-color)}
+.pc-chips{display:flex;gap:5px;flex-wrap:wrap;min-width:0}
+.pc-chip{display:inline-flex;align-items:center;gap:6px;width:auto;flex:0 0 auto;min-height:30px;padding:4px 10px;border:1px solid var(--border-strong);border-radius:2px;background:var(--surface-input);color:var(--text-secondary);font-size:12px;font-weight:800;box-shadow:none}
+.pc-chip b{padding:0 4px;background:var(--surface-4);color:var(--text-secondary);font-size:10px;font-variant-numeric:tabular-nums}
+.pc-chip:hover{border-color:var(--primary-color);color:var(--primary-color);background:var(--surface-input);filter:none;transform:none}
+.pc-chip.active{border-color:var(--primary-color);background:var(--pick-bg);color:var(--pick-text)}
+.pc-chip.active b{background:var(--primary-color);color:#fff}
+.pc-selects{display:flex;align-items:center;gap:6px;min-width:0}
+.pc-selects select{width:auto;min-width:110px;max-width:220px;height:32px;padding:5px 8px;font-size:12px;border-radius:2px}
+.pc-count{color:var(--text-secondary);font-size:11px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+.pc-list{display:grid;gap:1px;background:var(--border-soft)}
+.pc-rec{display:grid;grid-template-columns:230px minmax(0,1fr) 196px;align-items:center;gap:12px;min-width:0;padding:8px 12px;background:var(--surface-input);border-left:3px solid var(--pc-pending)}
+.pc-rec.exact{border-left-color:var(--pc-exact)}
+.pc-rec.correct{border-left-color:var(--pc-correct)}
+.pc-rec.wrong{border-left-color:var(--pc-wrong)}
+.pc-rec.forfeit{border-left-color:var(--pc-forfeit)}
+.pc-rec:hover{background:var(--row-hover)}
+
+/* 桌面：第一行 游戏+赛事，第二行 时间+赛制 */
+.pc-rec-meta{display:flex;flex-wrap:wrap;align-items:center;gap:3px 6px;min-width:0;color:var(--text-secondary);font-size:11px;font-weight:700}
+.pc-rec-meta .game-pill{flex:0 0 auto;padding:1px 6px;font-size:9px;font-weight:800;border-radius:2px}
+.pc-rec-tournament{flex:1 1 calc(100% - 70px);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary);font-weight:800}
+.pc-rec-meta time{font-variant-numeric:tabular-nums}
+.pc-rec-format{color:var(--text-secondary);font-size:10px;font-weight:800}
+
+.pc-rec-match{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:10px;min-width:0}
+.pc-team{display:flex;align-items:center;gap:7px;min-width:0}
+.pc-team-1{flex-direction:row-reverse;text-align:right}
+.pc-team img,.pc-team .placeholder{flex:0 0 auto;width:26px;height:26px;padding:2px;object-fit:contain;background:var(--surface-3);border:1px solid var(--border-soft);border-radius:2px;font-size:7px}
+.pc-team strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text-primary)}
+.pc-team.won strong{font-weight:900}
+.pc-team.picked strong{padding:1px 5px;background:var(--pick-bg);color:var(--pick-text)}
+.pc-rec-score{display:grid;justify-items:center;gap:1px;min-width:54px;font-variant-numeric:tabular-nums}
+.pc-pick{color:var(--text-heading);font-size:16px;font-weight:900;line-height:1.1}
+.pc-actual{color:var(--text-secondary);font-size:10px;font-weight:800}
+.pc-actual::before{content:'实际 '}
+
+.pc-rec-result{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.pc-badge{padding:2px 6px;border-radius:2px;background:var(--pick-bg);color:var(--pick-text);font-size:10px;font-weight:900;white-space:nowrap}
+.pc-badge.exact{background:rgba(47,143,91,.16);color:var(--pc-exact)}
+.pc-badge.correct{background:var(--correct-bg);color:var(--pc-correct)}
+.pc-badge.wrong{background:var(--wrong-bg);color:var(--pc-wrong)}
+.pc-badge.forfeit{background:rgba(199,148,53,.16);color:#8a6200}
+.pc-points{min-width:30px;color:var(--text-primary);font-size:14px;font-weight:900;text-align:right;font-variant-numeric:tabular-nums}
+.pc-rec.exact .pc-points,.pc-rec.correct .pc-points{color:var(--pc-correct)}
+.pc-rec.forfeit .pc-points{color:var(--text-secondary);font-size:11px}
+.pc-share{display:inline-flex;align-items:center;gap:4px;width:auto;flex:0 0 auto;min-height:28px;padding:3px 8px;border:1px solid var(--border-strong);border-radius:2px;background:transparent;color:var(--primary-color);font-size:11px;font-weight:800;box-shadow:none}
+.pc-share svg{width:13px;height:13px}
+.pc-share:hover{border-color:var(--primary-color);background:var(--pick-bg);filter:none;transform:none}
+
+.pc-more{width:auto;justify-self:center;margin:10px auto;padding:6px 18px}
+.pc-list > .pc-more{background:var(--surface-3)}
+.pc-empty,.pc-loading{padding:40px 16px;text-align:center;color:var(--text-secondary);font-size:12px;background:var(--surface-3)}
+.pc-empty h3{margin:0 0 4px;font-size:15px;color:var(--text-heading)}
+.pc-empty p{margin:0}
+.pc-login{border:1px dashed var(--border-color)}
+.pc-loading{font-weight:700}
+
+/* ---------- 账号设置 ---------- */
+.pc-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-items:start}
+.pc-settings[hidden],.pc-panel[hidden]{display:none}
+.pc-card{min-width:0;background:var(--surface-1);border:1px solid var(--border-color)}
+.pc-card[hidden]{display:none}
+.pc-card header{padding:10px 14px;background:var(--surface-4);border-bottom:1px solid var(--border-color)}
+.pc-card h2{margin:0;font-size:14px;color:var(--text-heading)}
+.pc-card header p{margin:3px 0 0;color:var(--text-secondary);font-size:11px;font-weight:600;line-height:1.5}
+.pc-card > :not(header){margin-left:14px;margin-right:14px}
+.pc-card > :last-child{margin-bottom:14px}
+.pc-form{display:grid;gap:10px;margin-top:12px}
+.pc-form-inline{grid-template-columns:minmax(0,1fr) auto;align-items:end}
+.pc-field{display:grid;gap:4px;margin:0;color:var(--text-secondary);font-size:11px;font-weight:800}
+.pc-field input{width:100%;min-width:0;height:34px}
+.pc-actions{display:flex;gap:6px;flex-wrap:wrap}
+.pc-actions button{width:auto;min-height:34px;padding:6px 14px}
+.pc-status{margin-top:12px;padding:8px 10px;background:var(--surface-3);border:1px solid var(--border-soft);color:var(--text-primary);font-size:12px;font-weight:700;line-height:1.5;overflow-wrap:anywhere}
+.pc-status:empty{display:none}
+.pc-feedback{margin-top:10px;padding:8px 10px;border:1px solid var(--border-color);background:var(--surface-3);color:var(--text-secondary);font-size:12px;font-weight:700}
+.pc-feedback.ok{background:var(--correct-bg);border-color:var(--success-color);color:var(--success-color)}
+.pc-feedback.err{background:var(--wrong-bg);border-color:var(--danger-color);color:var(--danger-color)}
+.pc-feedback[hidden]{display:none}
+
+/* 开关：原生 checkbox 视觉隐藏但保留键盘焦点与读屏语义 */
+.pc-switch{position:relative;display:flex;align-items:flex-start;gap:12px;margin-top:12px;cursor:pointer}
+.pc-switch input{position:absolute;width:1px;height:1px;min-width:0;margin:0;opacity:0}
+.pc-switch-track{position:relative;flex:0 0 auto;width:38px;height:22px;margin-top:1px;border-radius:11px;background:var(--surface-5);border:1px solid var(--border-strong);transition:background .15s ease}
+.pc-switch-track::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s ease}
+.pc-switch input:checked + .pc-switch-track{background:var(--primary-color);border-color:var(--primary-color)}
+.pc-switch input:checked + .pc-switch-track::after{transform:translateX(16px)}
+.pc-switch input:focus-visible + .pc-switch-track{outline:2px solid var(--primary-color);outline-offset:2px}
+.pc-switch-text{display:grid;gap:3px;min-width:0}
+.pc-switch-text strong{color:var(--text-primary);font-size:13px}
+.pc-switch-text small{color:var(--text-secondary);font-size:11px;font-weight:600;line-height:1.5}
+
+/* ---------- 响应式 ---------- */
+@media(max-width:1020px){
+  .pc-hero{grid-template-columns:1fr}
+  .pc-stats{grid-template-columns:repeat(5,minmax(0,1fr))}
+  .pc-rec{grid-template-columns:190px minmax(0,1fr) auto}
+  .pc-share span{display:none}
+}
+@media(max-width:760px){
+  .pc-page{padding:6px}
+  .pc-content{gap:8px}
+  .pc-hero{padding:12px}
+  .pc-avatar{width:44px;height:44px;font-size:19px}
+  .pc-id-text h2{font-size:17px}
+  .pc-stats{gap:4px}
+  .pc-stats div{padding:6px 2px}
+  .pc-stats dt{font-size:9px}
+  .pc-stats dd{font-size:16px}
+  /* 移动端：头部信息 + 结果一行，对阵占满下一行 */
+  .pc-rec{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"meta result" "match match";gap:8px;padding:8px 10px}
+  .pc-rec-meta{grid-area:meta}
+  .pc-rec-tournament{flex:1 1 0;min-width:60px}
+  .pc-rec-result{grid-area:result;gap:6px}
+  .pc-rec-match{grid-area:match;padding:6px 0 0;border-top:1px dashed var(--border-soft)}
+  .pc-team strong{font-size:12px}
+  .pc-team img,.pc-team .placeholder{width:24px;height:24px}
+  /* 筛选 chips 横向滑动，不换成多行占屏 */
+  .pc-toolbar{padding:6px 8px}
+  .pc-chips{flex-wrap:nowrap;width:100%;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .pc-chips::-webkit-scrollbar{display:none}
+  .pc-selects{width:100%}
+  .pc-selects select{flex:1 1 0;max-width:none;min-width:0}
+  .pc-settings{grid-template-columns:1fr;gap:8px}
+}
+@media(max-width:420px){
+  .pc-stats{gap:3px}
+  .pc-stats dt{font-size:8px;letter-spacing:-.02em}
+  .pc-stats dd{font-size:14px}
+  .pc-form-strip{flex-wrap:wrap;gap:6px}
+  .pc-form-inline{grid-template-columns:1fr}
+  .pc-actions button{flex:1 1 0}
+  .pc-rec-meta time{font-size:10px}
+  .pc-share{padding:3px 6px}
+}
+
+html[data-theme=dark] .pc-role.admin,html[data-theme=dark] .pc-badge.forfeit{color:#e0a458}
+html[data-theme=dark] .pc-page{--pc-exact:#5cc488}
+html[data-theme=dark] .pc-team img,html[data-theme=dark] .pc-team .placeholder{background:var(--surface-2)}
