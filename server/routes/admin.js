@@ -10,6 +10,8 @@ const { isValidScore } = require('../utils/scoring');
 const { settleMatch, recalculateUserScores } = require('../utils/settlement');
 const { sniffImageType } = require('./images');
 const { validateMatchInput, validateMatchReferences } = require('../utils/matchValidation');
+const { validate, validators } = require('../utils/validators');
+const { ApiError } = require('../middleware/errorHandler');
 
 const router = express.Router();
 router.use(authenticateToken, requireAdmin);
@@ -70,17 +72,22 @@ router.get('/users', (req, res) => {
     res.json({ users });
 });
 
-router.post('/users', (req, res) => {
-    const { username, password, role = 'user' } = req.body;
-    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username || '')) return res.status(400).json({ error: '用户名格式不正确' });
-    if (!password || password.length < 6) return res.status(400).json({ error: '密码至少6位' });
-    if (!['user', 'admin'].includes(role)) return res.status(400).json({ error: '角色无效' });
+router.post('/users', validate({
+    username: validators.username,
+    password: validators.password,
+    role: validators.role
+}), (req, res, next) => {
+    const { username, password, role } = req.validated;
     try {
-        const result = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(username, bcrypt.hashSync(password, 10), role);
+        const result = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(
+            username,
+            bcrypt.hashSync(password, 10),
+            role
+        );
         res.status(201).json({ id: result.lastInsertRowid });
     } catch (error) {
-        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(400).json({ error: '用户名已存在' });
-        res.status(500).json({ error: '创建用户失败' });
+        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') return next(new ApiError('用户名已存在', 400));
+        next(error);
     }
 });
 

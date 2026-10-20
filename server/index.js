@@ -5,6 +5,8 @@ const express = require('express');
 const cors = require('cors');
 const { ensureDatabase } = require('./config/init-db');
 const { startPandascoreSyncService } = require('./services/pandascoreService');
+const { errorLogger } = require('./middleware/errorHandler');
+const { requestLogger } = require('./middleware/requestLogger');
 
 ensureDatabase();
 
@@ -20,14 +22,24 @@ const HOST = process.env.HOST || '127.0.0.1';
 const TRUST_PROXY = Number.isInteger(Number(process.env.TRUST_PROXY)) ? Number(process.env.TRUST_PROXY) : 1;
 app.set('trust proxy', TRUST_PROXY);
 
+// Request logging middleware (add early to track all requests)
+app.use(requestLogger);
+
 // CORS：配置了 ALLOWED_ORIGINS（逗号分隔）就只允许这些域名，否则全开（兼容旧行为）
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+// 本机地址：生产环境通过域名访问，本地调试则是 localhost/127.0.0.1。
+// 浏览器对同源 POST 也会带 Origin 头，若不放行本地地址，登录、同步等写请求会被当成
+// 跨域拒绝（旧代码抛普通 Error，最终被兜底成 500 Internal server error）。
+const LOCAL_ORIGIN_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 if (allowedOrigins.length) {
     app.use(cors({
         origin(origin, callback) {
             // 无 origin（同源请求、curl、服务端调用）放行
             if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-            callback(new Error('Not allowed by CORS'));
+            if (process.env.NODE_ENV !== 'production' && LOCAL_ORIGIN_REGEX.test(origin)) return callback(null, true);
+            const error = new Error(`Origin ${origin} 不在 ALLOWED_ORIGINS 白名单内`);
+            error.statusCode = 403;
+            callback(error);
         }
     }));
 } else {
@@ -89,10 +101,8 @@ app.use(express.static(publicDir));
 app.use('/uploads', express.static(path.join(__dirname, '../data/uploads'), { maxAge: '7d', fallthrough: true }));
 app.get('*', serveHtml('index.html'));
 
-app.use((error, req, res, next) => {
-    console.error(error);
-    res.status(500).json({ error: '服务器内部错误' });
-});
+// Global error handler (must be last)
+app.use(errorLogger);
 
 app.listen(PORT, HOST, () => {
     console.log(`PRG CS2 Bet running at http://${HOST}:${PORT} (trust proxy: ${TRUST_PROXY})`);
@@ -100,3 +110,4 @@ app.listen(PORT, HOST, () => {
 });
 
 module.exports = app;
+module.exports.ApiError = require('./middleware/errorHandler').ApiError;

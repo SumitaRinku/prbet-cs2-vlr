@@ -87,7 +87,27 @@ router.get('/', optionalAuth, (req, res) => {
         const map = new Map(predictions.map(prediction => [prediction.match_id, prediction]));
         for (const match of matches) match.user_prediction = map.get(match.id) || null;
     }
-    res.json({ matches });
+
+    // Add data freshness indicator
+    const MAX_STALE_MS = 3600000; // 1 hour
+    const lastSync = db.prepare(`
+        SELECT MAX(last_synced_at) last_synced_at
+        FROM matches m
+        JOIN tournaments t ON t.id = m.tournament_id
+        WHERE t.game_type = ?
+    `).get(game_type || 'cs2');
+
+    const syncedAt = lastSync?.last_synced_at ? new Date(lastSync.last_synced_at) : null;
+    const isStale = !syncedAt || Date.now() - syncedAt.getTime() > MAX_STALE_MS;
+
+    res.json({
+        matches,
+        meta: {
+            syncedAt: syncedAt?.toISOString() || null,
+            isStale,
+            warning: isStale ? '比赛数据距离现在已超过1小时，请刷新页面重新同步' : null
+        }
+    });
 });
 
 router.get('/upcoming', optionalAuth, (req, res) => {

@@ -442,6 +442,43 @@ function upsertMatch(match, now) {
     return { id: inserted.lastInsertRowid, finished: effectiveStatus === 'finished', settle: effectiveStatus === 'finished' };
 }
 
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 1000;
+const MAX_DELAY_MS = 30000;
+
+/**
+ * Sync a single game with automatic retry and exponential backoff
+ */
+async function syncGameWithRetry(gameKey, context = 'scheduled') {
+    let lastError;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        try {
+            console.log(`[PandaScore] Syncing ${gameKey}, attempt ${attempt + 1}/${MAX_RETRIES}`);
+            const result = await fetchMatches(gameKey);
+
+            if (attempt > 0) {
+                console.log(`[PandaScore] ${gameKey} recovered after ${attempt} retries`);
+            }
+
+            return result;
+        } catch (error) {
+            lastError = error;
+            console.warn(`[PandaScore] ${gameKey} sync failed (attempt ${attempt + 1}): ${error.message}`);
+
+            if (attempt < MAX_RETRIES - 1) {
+                const waitMs = Math.min(
+                    BASE_DELAY_MS * Math.pow(2, attempt),
+                    MAX_DELAY_MS
+                );
+                await delay(waitMs);
+            }
+        }
+    }
+
+    throw lastError;
+}
+
 async function syncPandascoreMatches(mode = 'manual') {
     if (running) return { status: 'skipped', message: '已有同步任务正在运行' };
     running = true;
@@ -451,20 +488,33 @@ async function syncPandascoreMatches(mode = 'manual') {
         console.log(`[PandaScore] 开始同步，mode=${mode}`);
         const beforeTeams = db.prepare('SELECT COUNT(*) count FROM teams WHERE external_source = ?').get(SOURCE).count;
         const beforeTours = db.prepare('SELECT COUNT(*) count FROM tournaments WHERE external_source = ?').get(SOURCE).count;
-        // 各游戏独立拉取：单游戏失败不影响其他游戏入库（部分成功优于全部失败）
+
+        // 各游戏独立同步，支持重试：单游戏失败不影响其他游戏入库（部分成功优于全部失败）
         const gameKeys = Object.keys(GAMES);
-        const settled = await Promise.allSettled(gameKeys.map(fetchMatches));
+        const settled = await Promise.allSettled(
+            gameKeys.map(gameKey => syncGameWithRetry(gameKey, mode))
+        );
+
         const failures = [];
         const rows = [];
+
         settled.forEach((outcome, index) => {
-            if (outcome.status === 'fulfilled') rows.push(...outcome.value);
-            else failures.push(`${GAMES[gameKeys[index]].label}：${outcome.reason.message}`);
+            if (outcome.status === 'fulfilled') {
+                rows.push(...outcome.value);
+            } else {
+                failures.push(`${GAMES[gameKeys[index]].label}：${outcome.reason.message}`);
+            }
         });
+
         if (failures.length === gameKeys.length) {
             throw new Error(`全部游戏拉取失败：${failures.join('；')}`);
         }
-        if (failures.length) console.error(`[PandaScore] 部分游戏拉取失败：${failures.join('；')}`);
-        // 异常轮次计数与告警：干净成功清零（必要时先发恢复通知），部分失败计入连续异常
+
+        if (failures.length) {
+            console.error(`[PandaScore] 部分游戏拉取失败：${failures.join('；')}`);
+        }
+
+        // 异常轮次计数与告警
         if (failures.length === 0) {
             if (mode !== 'manual' && degradedRounds >= 2) {
                 await sendAlertNotification('PandaScore 同步恢复', `此前连续 ${degradedRounds} 轮同步异常，现已恢复正常。`);
@@ -473,6 +523,7 @@ async function syncPandascoreMatches(mode = 'manual') {
         } else if (mode !== 'manual') {
             await noteDegradedRound(failures.join('；'));
         }
+
         console.log(`[PandaScore] API 拉取完成，共 ${rows.length} 场，开始写入数据库`);
         const now = new Date().toISOString();
         let matchesUpserted = 0;
@@ -485,8 +536,6 @@ async function syncPandascoreMatches(mode = 'manual') {
                 if (!result.skipped) {
                     matchesUpserted++;
                     if (result.finished) matchesFinished++;
-                    // 对所有已结束比赛重新结算（幂等），这样赛果被修正后也会更新得分；
-                    // 只有分数实际变化时才重建总分，避免每次同步都全量重算
                     if (result.settle) {
                         const { changed } = settleMatch(result.id);
                         if (changed) scoresChanged = true;
@@ -494,9 +543,7 @@ async function syncPandascoreMatches(mode = 'manual') {
                 }
             }
             pruneExpiredInactiveTournaments(now);
-            // 全部预测算完后统一重建总分，作为唯一权威来源，避免增量漂移
             if (scoresChanged) recalculateUserScores();
-            // Mark only games whose entire fetch and transaction succeeded.
             const markSynced = db.prepare(`INSERT INTO bot_sync_state (game_type, last_success_at)
                 VALUES (?, ?) ON CONFLICT(game_type) DO UPDATE SET last_success_at = excluded.last_success_at`);
             settled.forEach((outcome, index) => {
@@ -508,8 +555,6 @@ async function syncPandascoreMatches(mode = 'manual') {
         const teams = Math.max(db.prepare('SELECT COUNT(*) count FROM teams WHERE external_source = ?').get(SOURCE).count - beforeTeams, 0);
         const tournaments = Math.max(db.prepare('SELECT COUNT(*) count FROM tournaments WHERE external_source = ?').get(SOURCE).count - beforeTours, 0);
         const message = `同步完成，读取 ${rows.length} 场比赛${failures.length ? `（部分失败：${failures.join('；')}）` : ''}`;
-        // sync_runs.status 的 CHECK 约束不含 partial：数据已入库的部分按 success 记录，
-        // 失败详情写入 message；API 返回 partial 供前端区分展示。
         db.prepare(`UPDATE sync_runs SET status = 'success', message = ?, finished_at = CURRENT_TIMESTAMP, tournaments_upserted = ?, teams_upserted = ?, matches_upserted = ?, matches_finished = ? WHERE id = ?`)
             .run(message, tournaments, teams, matchesUpserted, matchesFinished, run.lastInsertRowid);
         console.log(`[PandaScore] ${message}`);
