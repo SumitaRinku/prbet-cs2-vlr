@@ -798,6 +798,9 @@ html,body{max-width:100%;overflow-x:hidden;overflow-x:clip}
 /* 弃权标记：琥珀色，区别于已结算(灰)/进行中(红)/开放(蓝) */
 .match-forfeit{border-color:rgba(245,158,11,.45)!important}
 .match-status.match-forfeit{background:rgba(245,158,11,.16);color:#b45309}
+/* 弃权卡片复用已结束比分排版（js 追加 match-finished），中心副标签改显示「弃权」 */
+.home-layout .match-forfeit .match-center::after{content:"弃权";background:rgba(245,158,11,.12);color:#b45309}
+html[data-theme=dark] .home-layout .match-forfeit .match-center::after{background:rgba(245,158,11,.16);color:#e0a458}
 .user-prediction.forfeit{background:rgba(245,158,11,.12);color:#b45309}
 html[data-theme=dark] .user-prediction.forfeit{color:#e0a458}
 .archive-status.forfeit{background:rgba(245,158,11,.16);color:#b45309}

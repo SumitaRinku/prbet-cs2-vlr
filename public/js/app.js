@@ -260,6 +260,8 @@ function matchCard(match) {
     const isFinished = displayStatus === 'finished';
     const isAdminStale = state.user?.role === 'admin' && isStaleUnsettled(match);
     const stateInfo = cardState(match, prediction);
+    // 弃权卡片同样属于已结束：补上 match-finished 以复用大比分排版（状态徽标仍显示弃权）
+    const cardClass = isFinished && stateInfo.className !== 'match-finished' ? `${stateInfo.className} match-finished` : stateInfo.className;
     const rawStageLabel = match.name || match.stage_name || '常规赛';
     const stageLabel = rawStageLabel.replace(/:\s*[^:]+\s+vs\s+[^:]+$/i, '').trim() || match.stage_name || '常规赛';
     const team1Winner = isFinished && match.team1_score > match.team2_score;
@@ -270,7 +272,7 @@ function matchCard(match) {
         ? `<div class="prediction-form" onclick="event.stopPropagation()"><label>选择比分</label><div class="score-picks">${scoreButtons(match, prediction)}</div>${cancelHtml}</div>`
         : (canCancel ? `<div class="prediction-form" onclick="event.stopPropagation()">${cancelHtml}</div>` : '');
     return `
-        <article id="home-match-${match.id}" class="match-card ${stateInfo.className} ${match.game_type || ''} ${isFinished ? 'clickable' : ''}" ${isFinished ? `onclick="showMatchPredictions(${match.id})"` : ''}>
+        <article id="home-match-${match.id}" class="match-card ${cardClass} ${match.game_type || ''} ${isFinished ? 'clickable' : ''}" ${isFinished ? `onclick="showMatchPredictions(${match.id})"` : ''}>
             <div class="match-header">
                 <div class="match-tournament">
                     <span class="game-pill ${match.game_type || ''}">${gameName(match.game_type)}</span>
