@@ -2,7 +2,7 @@
 // 依赖 /js/tournament-logos.js（须先加载）：tournamentLogo
 // 结构：状态 → 基础工具 → 提示/对话框 → 登录 → 数据加载 → 页签渲染 → 操作 → 事件委托
 
-const TABS = ['overview', 'matches', 'tournaments', 'teams', 'users', 'predictions'];
+const TABS = ['overview', 'matches', 'tournaments', 'previews', 'teams', 'users', 'predictions'];
 const PAGE_SIZE = 50;
 
 function readStoredUser() {
@@ -22,10 +22,12 @@ const state = {
     matches: [],
     users: [],
     predictions: [],
+    previews: [],
     // 每个页签独立的筛选条件；切页签不丢
     filters: {
         matches: { q: '', tournament: '', status: '', betting: '', todo: false },
         tournaments: { q: '', active: '', source: '', tier: '' },
+        previews: { q: '', visible: '' },
         teams: { q: '', source: '' },
         users: { q: '', role: '' },
         predictions: { q: '', status: '' }
@@ -103,6 +105,12 @@ function teamLogoImg(url) {
 // 赛事 logo：与前台一致（手动上传 > 名称匹配精选映射），PandaScore 远程 logo 不使用
 function tournamentLogoImg(t) {
     const html = tournamentLogo(t.name, t.game_type, t.logo_url && t.logo_url.startsWith('/uploads/') ? t.logo_url : null);
+    return html ? `<span class="ops-tlogo">${html}</span>` : '<span class="ops-tlogo ops-logo-empty"></span>';
+}
+
+// 未来赛事预告没有本地 logo_url，按赛事名匹配精选厂牌 logo
+function previewLogo(p) {
+    const html = tournamentLogo(p.name, p.game_type);
     return html ? `<span class="ops-tlogo">${html}</span>` : '<span class="ops-tlogo ops-logo-empty"></span>';
 }
 
@@ -336,6 +344,7 @@ function renderNavCounts() {
     const counts = {
         matches: state.matches.length,
         tournaments: state.tournaments.length,
+        previews: state.previews.length,
         teams: state.teams.length,
         users: state.users.length,
         predictions: state.predictions.length
@@ -419,7 +428,7 @@ async function loadAll() {
     if (!state.loaded) $('#opsView').innerHTML = '<div class="ops-loading">加载后台数据…</div>';
     const q = state.game ? `game_type=${encodeURIComponent(state.game)}` : '';
     try {
-        const [stats, tournaments, teams, matchGroups, users, predictions] = await Promise.all([
+        const [stats, tournaments, teams, matchGroups, users, predictions, previews] = await Promise.all([
             api(`/admin/stats${q ? `?${q}` : ''}`),
             api(`/admin/tournaments${q ? `?${q}` : ''}`),
             api(`/admin/teams${q ? `?${q}` : ''}`),
@@ -429,7 +438,8 @@ async function loadAll() {
                 api(`/admin/matches?limit=1000&status=${status}${q ? `&${q}` : ''}`)
                     .then(res => ({ status, rows: res.matches || [] })))),
             api('/admin/users'),
-            api('/admin/predictions')
+            api('/admin/predictions'),
+            api(`/admin/previews${q ? `?${q}` : ''}`)
         ]);
         state.stats = stats;
         state.tournaments = tournaments.tournaments || [];
@@ -439,6 +449,7 @@ async function loadAll() {
         state.matchesTruncated = matchGroups.some(g => g.rows.length >= 1000);
         state.users = users.users || [];
         state.predictions = predictions.predictions || [];
+        state.previews = previews.previews || [];
         state.loaded = true;
         renderSyncStatus(stats.sync);
     } catch (error) {
@@ -513,6 +524,14 @@ function filteredTournaments() {
         if (f.source && sourceOf(t) !== f.source) return false;
         if (f.tier && String(t.effective_tier) !== f.tier) return false;
         return includesText(`${t.name} ${t.short_name || ''} ${t.id}`, f.q);
+    });
+}
+
+function filteredPreviews() {
+    const f = state.filters.previews;
+    return state.previews.filter(p => {
+        if (f.visible && String(p.is_visible) !== f.visible) return false;
+        return includesText(`${p.name} ${p.game_type} ${p.external_id} ${p.id}`, f.q);
     });
 }
 
@@ -647,6 +666,27 @@ const tournamentsView = {
     }
 };
 
+// ---------- 未来赛事预告 ----------
+
+const previewsView = {
+    toolbar() {
+        return toolbar('未来赛事预告', `
+            ${searchBox('previews', '搜索赛事名称 / 游戏')}
+            ${filterSelect('previews', 'visible', [['', '全部显示状态'], ['1', '前台显示'], ['0', '已隐藏']])}
+            <span class="ops-muted ops-note">仅控制赛事回看页的预告板块，不影响比赛与积分</span>`);
+    },
+    table() {
+        return tableBlock('previews', [['赛事'], ['游戏', 'center'], ['开始', 'nowrap'], ['结束', 'nowrap'], ['前台', 'center']], filteredPreviews(), p => `
+            <tr class="${p.is_visible ? '' : 'is-dim'}">
+                <td><div class="ops-cell-id">${previewLogo(p)}<div class="ops-cell-main"><strong class="ops-ellipsis" title="${esc(p.name)}">${esc(p.name)}</strong><small>#${p.id} · ${esc(p.external_id)}</small></div></div></td>
+                <td class="center">${gamePill(p.game_type)}</td>
+                <td class="nowrap ops-mono">${fmtTime(p.begin_at)}</td>
+                <td class="nowrap ops-mono">${fmtTime(p.end_at)}</td>
+                <td class="center">${act(p.is_visible ? '显示中' : '已隐藏', 'preview-toggle', p.id, `toggle ${p.is_visible ? 'on' : 'off'}`)}</td>
+            </tr>`);
+    }
+};
+
 // ---------- 队伍 ----------
 
 const teamsView = {
@@ -728,7 +768,7 @@ const predictionsView = {
     }
 };
 
-const VIEWS = { matches: matchesView, tournaments: tournamentsView, teams: teamsView, users: usersView, predictions: predictionsView };
+const VIEWS = { matches: matchesView, tournaments: tournamentsView, previews: previewsView, teams: teamsView, users: usersView, predictions: predictionsView };
 
 // ---------- 渲染 ----------
 
@@ -966,6 +1006,14 @@ async function toggleTournament(id) {
     });
 }
 
+// 切换预告前台显示：隐藏项仍保留在后台列表，便于随时恢复
+async function togglePreview(id) {
+    const p = requireRow(state.previews, id, '赛事预告');
+    const next = p.is_visible ? 0 : 1;
+    await api(`/admin/previews/${p.id}/visibility`, { method: 'PUT', body: { is_visible: next } });
+    toast(await refresh(next ? '已在前台显示该赛事预告' : '已在前台隐藏该赛事预告'));
+}
+
 function deleteTournament(id) {
     const t = requireRow(state.tournaments, id, '赛事');
     if (t.match_count > 0) throw new Error(`该赛事下还有 ${t.match_count} 场比赛，不能删除；可改为禁用`);
@@ -1170,6 +1218,7 @@ const ACTIONS = {
     'tournament-delete': el => deleteTournament(el.dataset.id),
     'tournament-logo': el => uploadTournamentLogo(el.dataset.id),
     'tournament-logo-remove': el => removeTournamentLogo(el.dataset.id),
+    'preview-toggle': el => togglePreview(el.dataset.id),
     'team-create': createTeam,
     'team-edit': el => editTeam(el.dataset.id),
     'team-delete': el => deleteTeam(el.dataset.id),

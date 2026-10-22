@@ -336,20 +336,35 @@ async function syncTournamentPreviews() {
         const now = new Date().toISOString();
         let count = 0;
         const replacePreviews = db.transaction(() => {
-            const remove = db.prepare('DELETE FROM tournament_previews WHERE external_source = ? AND game_type = ?');
-            const insert = db.prepare(`
+            // upsert 保留管理员设置的 is_visible；仅清理本轮未返回的过期预告。
+            const upsert = db.prepare(`
                 INSERT INTO tournament_previews (game_type, external_source, external_id, name, begin_at, end_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(external_source, external_id) DO UPDATE SET
+                    game_type = excluded.game_type,
+                    name = excluded.name,
+                    begin_at = excluded.begin_at,
+                    end_at = excluded.end_at,
+                    updated_at = excluded.updated_at
             `);
+            const removeGame = db.prepare('DELETE FROM tournament_previews WHERE external_source = ? AND game_type = ?');
             settled.forEach((outcome, index) => {
                 // 单游戏失败时保留该游戏的旧预告，避免整块消失
                 if (outcome.status !== 'fulfilled') return;
                 const gameType = gameKeys[index];
-                remove.run(SOURCE, gameType);
+                const ids = [];
                 for (const { serie } of outcome.value) {
                     if (!serie.id) continue;
-                    insert.run(gameType, SOURCE, `${gameType}:${serie.id}`, serieDisplayName(serie), iso(serie.begin_at), iso(serie.end_at), now);
+                    const externalId = `${gameType}:${serie.id}`;
+                    upsert.run(gameType, SOURCE, externalId, serieDisplayName(serie), iso(serie.begin_at), iso(serie.end_at), now);
+                    ids.push(externalId);
                     count++;
+                }
+                if (!ids.length) {
+                    removeGame.run(SOURCE, gameType);
+                } else {
+                    db.prepare(`DELETE FROM tournament_previews WHERE external_source = ? AND game_type = ? AND external_id NOT IN (${ids.map(() => '?').join(',')})`)
+                        .run(SOURCE, gameType, ...ids);
                 }
             });
         });

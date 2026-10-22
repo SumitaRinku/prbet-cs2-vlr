@@ -126,6 +126,7 @@ function ensureDatabase() {
             name TEXT NOT NULL,
             begin_at TEXT,
             end_at TEXT,
+            is_visible INTEGER NOT NULL DEFAULT 1,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(external_source, external_id)
         );
@@ -188,6 +189,12 @@ function ensureDatabase() {
         db.exec('ALTER TABLE teams ADD COLUMN dark_logo_url TEXT');
     }
 
+    const previewColumns = db.prepare('PRAGMA table_info(tournament_previews)').all().map(column => column.name);
+    if (!previewColumns.includes('is_visible')) {
+        // 未来赛事预告前台可见性：管理员在后台逐项显示/隐藏，默认全部可见。
+        // 预告同步使用 upsert，不会覆盖该字段，管理员的取舍可长期保留。
+        db.exec('ALTER TABLE tournament_previews ADD COLUMN is_visible INTEGER NOT NULL DEFAULT 1');
+    }
 
     const matchColumns = db.prepare('PRAGMA table_info(matches)').all().map(column => column.name);
     if (!matchColumns.includes('stage_name')) {

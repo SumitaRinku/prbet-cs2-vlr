@@ -97,7 +97,7 @@ router.get('/', (req, res) => {
 router.get('/previews', (req, res) => {
     const { game_type } = req.query;
     const params = [];
-    let where = "datetime(COALESCE(end_at, begin_at)) >= datetime('now')";
+    let where = "is_visible = 1 AND datetime(COALESCE(end_at, begin_at)) >= datetime('now')";
     if (game_type) {
         where += ' AND game_type = ?';
         params.push(game_type);

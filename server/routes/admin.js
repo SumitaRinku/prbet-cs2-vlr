@@ -73,6 +73,38 @@ router.post('/sync/previews', async (req, res) => {
     }
 });
 
+// 未来赛事预告管理：列出全部同步项（含已隐藏），由管理员决定前台展示哪些赛事
+router.get('/previews', (req, res) => {
+    const { game_type } = req.query;
+    const params = [];
+    let where = '1=1';
+    if (game_type) {
+        where += ' AND game_type = ?';
+        params.push(game_type);
+    }
+    const previews = db.prepare(`
+        SELECT id, game_type, external_id, name, begin_at, end_at, is_visible, updated_at
+        FROM tournament_previews
+        WHERE ${where}
+        ORDER BY datetime(begin_at) ASC
+        LIMIT 2000
+    `).all(...params);
+    res.json({ previews });
+});
+
+// 切换单条预告的前台可见性；同步 upsert 会保留该选择
+router.put('/previews/:id/visibility', (req, res) => {
+    const preview = db.prepare('SELECT id FROM tournament_previews WHERE id = ?').get(req.params.id);
+    if (!preview) return res.status(404).json({ error: '赛事预告不存在' });
+    const raw = req.body?.is_visible;
+    const visible = raw === true || raw === 1 || raw === '1' ? 1
+        : raw === false || raw === 0 || raw === '0' ? 0
+        : null;
+    if (visible === null) return res.status(400).json({ error: '无效的显示状态' });
+    db.prepare('UPDATE tournament_previews SET is_visible = ? WHERE id = ?').run(visible, preview.id);
+    res.json({ is_visible: visible });
+});
+
 router.post('/sync/pandascore', async (req, res) => {
     try {
         res.json(await syncPandascoreMatches('manual'));
