@@ -341,6 +341,9 @@ html[data-theme=dark] .home-layout .match-settling .match-vs{background:transpar
 /* 暗色专用赛事 logo（-dark 变体，白色版）：加载成功时不用浅色底板 */
 html[data-theme=dark] img.tournament-logo[data-variant=dark],
 html[data-theme=dark] .home-layout .tournament-name img.tournament-logo[data-variant=dark]{background:transparent;border-color:transparent}
+/* 黑白赛事 logo 自动反色：覆盖主页卡片 / 筛选 chip / 预告 / 赛事回看 / 管理后台等所有展示位；
+   彩色 logo 已在 tournament-logos.js 采样阶段排除，不会被反色 */
+html[data-theme=dark] img.tournament-logo.tournament-logo-invert{filter:invert(1) hue-rotate(180deg)}
 /* ===== 暗色模式补充：PandaScore 暗色队标 / 倒计时 / 比分 / 弹窗空态 / 对阵历史 ===== */
 /* 暗色队标（白色版）：去掉浅色底板，直接融进暗色表面 */
 html[data-theme=dark] img[data-team-logo][data-variant=dark]{background:transparent!important;border-color:transparent!important;box-shadow:none!important}
