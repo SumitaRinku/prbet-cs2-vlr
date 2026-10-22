@@ -1,32 +1,31 @@
-# NapCat 赛事提醒：从配置到运行
+# NapCat QQ 群赛事提醒
 
-当前目录是 Windows 端程序。**只需要 Node.js 20 或更新版本，不需要 npm install，也不用复制网站数据库。** Linux 网站需要先部署本次代码，网站和 Windows 使用同一个独立令牌。
+Windows 端推送程序。只需要 Node.js 20+，无需 `npm install`，不复制网站数据库。Windows 定时拉取 Linux 网站的 `/api/bot/schedule`，经本机 NapCat 发群消息。群内竞猜、账号绑定、管理员指令和结算推送见 [COMMANDS.md](COMMANDS.md)。
 
-默认消息：每日 12:00 发送「昨日简报 + 当日赛程（含次日凌晨）」；若当天 06:00–11:59 有比赛，提前到最早开赛前 10 分钟发送整份日报，中午不重复。窗口无比赛时改成「昨日简报 + 后续赛事预告」。凌晨以 06:00 为分界，统一北京时间。
+推送内容（统一北京时间，以 06:00 为一天分界，不 @全体成员）：
 
-昨日简报按前一天 06:00 至当天 06:00 的**计划开赛时间**归属，展示最多 12 场已结束比赛的队名、比分，弃权另标；其余数量及链接附后。尚未结束、未同步到比分的比赛标为待更新，不猜比分。早于 06:00 发送日报时，简报仅代表当时已知赛果。
+- 日报：默认 12:00 发「昨日赛果 + 今日赛程（含次日凌晨）」；当天 06:00–11:59 有比赛时，提前到最早开赛前 10 分钟发，中午不重复。今日无比赛时改为近期赛程。
+- 临赛提醒：开赛前 30 分钟。
+- 周日 20:00 未来七天预告。
+- 已播报比赛的改期、取消、对阵变化。
 
-还包括开赛前 30 分钟提醒、周日 20:00 七天预告、已通知比赛的改期/取消/对阵更正。这些功能不会自动 @全体成员。
+昨日赛果按前一天 06:00 至当天 06:00 的计划开赛时间归属，最多列 `resultsLimit` 场，未出比分的标为待更新。
 
-**新增群聊竞猜、账号绑定、管理员指令和结算推送：** 请看 [群竞猜启用教程](COMMANDS.md)。已有日报用户需要同时更新 Linux 网站与 Windows 程序，并给 NapCat 增加一个本机 HTTP 客户端上报连接。只发日报时仍只需要 HTTP 服务端。
+## 消息示例
 
-## 消息播报一览
+示例中的队伍、赛事、ID 和域名均为占位值。
 
-先看这张速览表，下面给出每种情形的完整示例。示例中的队伍、赛事、比赛 ID 和域名均为占位值。
+| 情形 | 消息开头 |
+| --- | --- |
+| 日报 | `【赛事日报 · 2026-10-16】` |
+| 临赛提醒 | `【即将开赛 · 约 20 分钟后】` |
+| 周日预告 | `【未来七天赛事预告】` |
+| 赛程变化 | `【赛程更新】` |
+| 群指令回复 | `QQ 234567：` |
+| 赛后结算 | `【比赛结算 · #123】`，修正为 `【赛果更正 · #123】`，多场合并为 `【比赛结算 · 共 N 场】` |
+| 数据过期 | 不发消息，暂停本轮并写日志 |
 
-| 情形 | 触发时机 | 消息开头/结果 |
-| --- | --- | --- |
-| 日报 + 当日赛程 | 默认 12:00；有早场则提前到最早开赛前 10 分钟 | `【赛事日报 · 2026-10-16】` |
-| 日报无赛程 | 当天窗口没有已确认比赛 | `今日无比赛，近期赛程：` |
-| 临赛提醒（已开放竞猜） | 开赛前默认 30 分钟 | `【即将开赛 · 约 20 分钟后】` |
-| 临赛提醒（未开放竞猜） | 同上，但比赛关闭竞猜 | `竞猜未开放` |
-| 周日七天预告 | 周日默认 20:00 | `【未来七天赛事预告】` |
-| 赛程变化 | 已播报比赛改期、取消、延期、下架或对阵变化 | `【赛程更新】` |
-| 群内回复/指令 | 合法回复或 `/prbet` 指令 | `QQ 234567：` 后跟处理结果 |
-| 赛后结算 | 网站完成比赛结算 | `【比赛结算 · #123】` |
-| 数据过期 | 任一订阅游戏同步超过阈值 | 不发群消息，只暂停本轮并写日志 |
-
-### 日报：有赛果和当日赛程
+日报：
 
 ```text
 【赛事日报 · 2026-10-16】
@@ -35,9 +34,6 @@
 
 CS2 · BLAST Open
 Alpha 2:1 Beta
-
-Valorant · VCT Pacific
-Gamma 0:2 Delta
 1 场赛果待更新
 
 今日赛程
@@ -49,31 +45,9 @@ CS2 · BLAST Open
 https://example.com/tournaments.html
 ```
 
-日报只把有明确比分的已结束比赛放进“昨日简报”；弃权显示为 `Alpha 1:0 Beta（弃权）`。超过 `resultsLimit` 的赛果只提示剩余数量。
+无赛果显示 `暂无赛果`；弃权显示 `Alpha 1:0 Beta（弃权）`；超出部分显示 `另有 N 场见网站`。今日无比赛时显示 `今日无比赛，近期赛程：` 及未来七天赛程，仍无则为 `未来七天暂无赛程`。时间未确认的比赛不列入，只提示 `另有 N 场时间待定`。
 
-### 日报：当天没有已确认赛程
-
-```text
-【赛事日报 · 2026-10-16】
-
-昨日赛果
-暂无赛果
-
-今日赛程
-今日无比赛，近期赛程：
-
-CS2 · BLAST Open
-10/18 20:00  Alpha vs Beta · BO3
-10/19 18:00  Gamma vs Delta · BO1
-
-https://example.com/tournaments.html
-```
-
-未来七天也没有已公布赛程时，预告部分显示 `未来七天暂无赛程`。开赛时间未确认的比赛不会列入正式赛程，末尾会提示待确认数量。
-
-### 临赛提醒：已开放竞猜
-
-启用群竞猜的群会看到可复制的指令；所有满足提醒条件的群都会看到比赛信息和网站链接。
+临赛提醒：
 
 ```text
 【即将开赛 · 约 20 分钟后】
@@ -83,38 +57,9 @@ CS2 · BLAST Open
 https://example.com/tournaments.html?tournament=123#match-row-123
 ```
 
-已绑定并加入该群竞猜的 QQ，可以直接回复这条提醒并发送 `2:1`、`2-1` 或 `2：1`；也可以发送示例指令。比分顺序按提醒中左队、右队填写。
+开赛时间即竞猜截止时间。第四行在启用群指令的群是上面这样，只接收提醒的群为 `可在网站竞猜`，比赛未开放竞猜时为 `竞猜未开放`。TBD、时间未确认、已开始、取消或延期的比赛不提醒。
 
-### 临赛提醒：未开放竞猜
-
-```text
-【即将开赛 · 约 20 分钟后】
-CS2 · BLAST Open
-#123 Alpha vs Beta · BO3 · 10/16 18:00
-竞猜未开放
-https://example.com/tournaments.html?tournament=123#match-row-123
-```
-
-TBD 对阵、未确认时间、已开始、取消或延期的比赛不会生成临赛提醒。
-
-### 周日未来七天预告
-
-```text
-【未来七天赛事预告】
-
-CS2 · BLAST Open
-10/18 20:00  Alpha vs Beta · BO3
-10/19 18:00  Gamma vs Delta · BO1
-另有 2 场见网站
-
-https://example.com/tournaments.html
-```
-
-每个赛事最多列 4 场；关闭 `weeklyEnabled` 后不发送。
-
-### 赛程更新
-
-改期或对阵变化：
+周日预告每个赛事最多列 4 场，其余为 `另有 N 场见网站`。赛程更新：
 
 ```text
 【赛程更新】
@@ -125,18 +70,7 @@ Alpha vs Beta
 https://example.com/tournaments.html
 ```
 
-取消、延期、下架或时间重新未知时，状态行分别为 `已取消`、`已延期`、`已下架或停止展示`、`开赛时间待确认`。同一变化不会重复刷屏。
-
-### 群内回复、指令和赛后结算
-
-直接回复提醒并提交成功：
-
-```text
-QQ 234567：
-竞猜已提交：#123 Alpha 2:1 Beta
-```
-
-重复提交同一场会变成 `竞猜已修改`。未绑定、未加入当前群、比分不符合 BO1/BO3/BO5 或比赛已开始时，会在同一位置返回对应的简短错误。
+取消、延期、下架或时间重新未知时，最后一行状态分别为 `已取消`、`已延期`、`已下架或停止展示`、`开赛时间待确认`。
 
 赛后结算：
 
@@ -150,26 +84,21 @@ bob：2:0 · 猜中胜者 · +1 分
 carol：0:2 · 未猜中 · +0 分
 ```
 
-赛果修正会把标题改成 `【赛果更正 · #123】`，并显示相对上次结算的得分变化；没有本群成员参与时会显示暂无成员竞猜。多场在短时间内结算时会合并为 `【比赛结算 · 共 N 场】`。
+赛果更正显示 `0 分（较上次 -2）`；无人参与显示 `本群无人竞猜`。
 
-### 长消息、异常和不发送
+超过约 1,200 字的消息拆成 `（1/2）`、`（2/2）` 发送，每条间隔 3 秒。
 
-- 超过约 1,200 字会拆成 `（1/2）`、`（2/2）` 等多条，顺序不变。
-- 任一订阅游戏同步过期时，本轮不发日报、预告或提醒，避免把数据缺失说成“暂无比赛”。
-- 发送结果不确定时记为 `unknown`，不会盲目重发。
-- 群指令每分钟、每个 QQ 受限流保护；重复上报不会重复提交竞猜或结算。
+## 首次部署
 
-## 第一步：在 Linux 网站服务器更新
+### 1. Linux 网站
 
-将本次项目代码上传/更新到网站目录，保留服务器原有 `.env` 和 `data/`。下面命令在**网站项目根目录**执行：
+在网站项目根目录生成令牌：
 
 ```bash
-npm install
-npm run backup
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 ```
 
-最后一条会生成一个随机令牌。把它保存到网站根目录 `.env`，不要添加到前端代码：
+写入 `.env`（不要放进前端代码）：
 
 ```dotenv
 BOT_FEED_TOKEN=刚生成的令牌
@@ -177,134 +106,119 @@ PANDASCORE_SYNC_ENABLED=true
 PANDASCORE_SYNC_RESULTS=true
 ```
 
-保留原有 `PANDASCORE_API_TOKEN` 等配置，再执行：
+然后：
 
 ```bash
+npm run backup
 npm run init-db
 npm run sync:pandascore
 pm2 restart prg-cs2-bet-new --update-env
 ```
 
-`prg-cs2-bet-new` 替换为 `pm2 list` 中实际网站进程名；若网站不用 PM2，则按现有方式重启。迁移会添加 `matches.time_confirmed` 和 `bot_sync_state`，不会清空数据。同步回看范围由 1 天扩为 2 天，以便补齐昨日赛果。
+PM2 进程名以 `pm2 list` 为准。Nginx 只要把 `/api/` 反代到 Node 即可覆盖 `/api/bot/`，接口响应不能被 CDN 缓存。只有网站后台已启用的赛事会推送，新同步的赛事默认禁用。
 
-Nginx 需要将 `/api/bot/` 和其他 `/api/` 一样转发给网站 Node 服务。如果当前 `/` 已经反代到网站，一般无需另外修改。公网用 HTTPS，接口响应不应被 CDN 缓存。**不需要在网站服务器安装 NapCat。**
+### 2. NapCat HTTP 服务端
 
-在网站后台启用希望推送的赛事。新同步进来的赛事默认禁用，未启用的不会出现在消息中。旧的 PandaScore 比赛会在重新同步确认真实时间后参与定时提醒。
+在 NapCat 网络配置启用 **HTTP 服务端**（不是客户端或 WebSocket）：监听 `127.0.0.1`，端口如 `3001`，设置 Access Token。该端口和 WebUI 都不需要对公网开放。启用群指令还需另加一个 HTTP 客户端，见 [COMMANDS.md](COMMANDS.md)。
 
-## 第二步：在 Windows 服务器配置 NapCat
+### 3. Windows 配置
 
-1. 确认 NapCat 已登录，机器人 QQ 已加入目标群且有发言权限。
-2. 在 NapCat 的网络配置里新增或开启 **HTTP 服务端（OneBot HTTP Server）**，不是 HTTP 客户端，也不是 WebSocket。
-3. 主机/监听地址设 `127.0.0.1`，端口可设 `3001`（若占用则换一个），设置 Access Token，保存并按界面提示启用配置。不同版本页面名称可能稍有不同。
-4. 记录实际 HTTP 端口和 Access Token。该令牌与网站令牌可以、也建议分别生成。
-
-只由 Windows 本机调用 NapCat，所以不需要在云防火墙开放 3001 或 NapCat WebUI 端口。
-
-## 第三步：填写 Windows 程序配置
-
-将整个 `bot` 文件夹复制到 Windows，例如 `C:\prbet-bot`。不要只复制 `run.js`，它还需要 `core.js`。先安装 Node.js 20+，重新打开 PowerShell，确认：
+将整个 `bot` 目录复制到例如 `C:\prbet-bot`：
 
 ```powershell
-node --version
 Set-Location C:\prbet-bot
 Copy-Item config.example.json config.json
 notepad config.json
 ```
 
-至少修改以下 5 项：
+必填项：
 
-| 配置 | 填写内容 |
+| 配置 | 内容 |
 | --- | --- |
-| `siteUrl` | 网站的 HTTPS 域名，例如 `https://prbet.gekichumai.cn`，末尾不带 `/api` |
-| `feedToken` | Linux `.env` 中的 `BOT_FEED_TOKEN` |
-| `napcatUrl` | NapCat HTTP 服务端地址，例如 `http://127.0.0.1:3001`，不是 WebUI 地址 |
-| `napcatToken` | NapCat HTTP 服务端的 Access Token |
-| `groupIds` | 目标QQ群号，必须保留引号，例如 `["123456789"]`；多个群用逗号分隔 |
+| `siteUrl` | 网站 HTTPS 地址，末尾不带 `/api` |
+| `feedToken` | 与 Linux `BOT_FEED_TOKEN` 相同 |
+| `napcatUrl` | NapCat HTTP 服务端地址，如 `http://127.0.0.1:3001` |
+| `napcatToken` | NapCat HTTP 服务端 Access Token |
+| `groupIds` | 群号字符串数组，如 `["123456789"]` |
 
-先填一个专门的测试群。不要将带令牌的 `config.json` 上传公开仓库。JSON 不允许注释或最后一项后多余的逗号。
+`config.json` 含令牌，不要提交到仓库。
 
-## 第四步：先预览，再测试发消息
-
-在 Windows PowerShell 中执行：
+### 4. 预览与测试
 
 ```powershell
-Set-Location C:\prbet-bot
-node run.js --preview
+node run.js --preview   # 拉取真实赛程并打印日报，不发送、不写记录
+node run.js --test      # 立即向每个群发一条连接测试，需 dryRun: false
+node run.js --status    # 查看发送状态
+node run.js             # 正式运行，每 pollSeconds 秒检查一次
 ```
 
-这会真实读取网站赛程并打印日报，**不会发到QQ群，也不会写入发送记录**。如果提示同步过期，应先处理 Linux 的 PandaScore 同步；当前工作区旧库不能直接当成生产实时赛程。
+`dryRun: true` 时只预览一次就退出。启动后不会补发全部历史：日报只在计划时间后 2 小时内补发，提醒只发未开始的比赛。
 
-预览没有问题后，将 `config.json` 中 `"dryRun": true` 改成 `"dryRun": false`，保存，再执行：
+### 5. 开机自启
 
-```powershell
-node run.js --test
-```
+任务计划程序 → 创建任务：
 
-**这条命令会立即向配置中的每一个群发送一条“赛事提醒连接测试”。** 输出 `sent` 且群内收到消息代表链路通畅；失败时看状态和下面的排查表。每次运行 `--test` 都是新的测试消息，不受日报去重限制。
+1. 常规：选择装有 Node.js 的账号，“不管用户是否登录都要运行”。
+2. 触发器：系统启动时，延迟 1 分钟。
+3. 操作：程序 `powershell.exe`，参数 `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\prbet-bot\start.ps1"`，起始于 `C:\prbet-bot`。
+4. 设置：失败后每 1 分钟重启；取消运行时长限制；已运行时“不启动新实例”。
 
-测试通过后可换成正式群号，启动：
-
-```powershell
-node run.js
-```
-
-程序持续运行，每分钟检查一次。必须保持运行；关掉这个终端就停止。不会因为启动就立即补发当天所有消息：日报只在计划时间起两小时内补发，临赛提醒只发仍未开始的比赛。需要马上看日报时用 `--preview`，不要删除发送记录。
-
-## 第五步：设置 Windows 开机自动运行
-
-用 Windows「任务计划程序」→「创建任务」：
-
-1. 常规：名称 `PRBET QQ Reminders`，选择安装 Node.js、可读取 `C:\prbet-bot` 的账号，选择“不管用户是否登录都要运行”。保存时由 Windows 提示输入该账号密码。
-2. 触发器：系统启动时，可延迟 1 分钟。
-3. 操作：启动程序 `powershell.exe`；参数填 `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\prbet-bot\start.ps1"`；“起始于”填 `C:\prbet-bot`。
-4. 设置：勾选失败后每 1 分钟重新启动；取消“任务运行超过指定时间则停止”；如果任务已运行，选择“不启动新实例”。
-5. 先停止手动运行的 `node run.js`（Ctrl+C），然后右键任务→运行。
-
-NapCat 自身也需要按它原有的方式保持运行和登录。程序只负责调用已运行的 NapCat，不代替 QQ 登录。
-
-程序额外占用本机 `39173` 端口防止同一台机器同时启动两个实例，该端口无需对外开放。通过更改 `lockPort` 绕过锁并同时运行多个实例可能导致重复消息，不要这样使用。
-
-通过任务启动时，日志保存在 `C:\prbet-bot\data\worker-启动日期.log`。可查看：
+程序占用本机 `lockPort`（默认 39173）防止重复实例，不要改端口绕过。日志在 `data\worker-日期.log`：
 
 ```powershell
 Get-Content (Get-ChildItem C:\prbet-bot\data\worker-*.log | Sort-Object LastWriteTime | Select-Object -Last 1).FullName -Tail 50
-node C:\prbet-bot\run.js --status
 ```
 
-## 可调整的规则
+## 更新已部署版本
+
+1. 停止 Windows bot（手动运行按 Ctrl+C，计划任务则结束任务），确认进程已退出。
+2. Linux 网站：
+
+   ```bash
+   npm run backup
+   git pull            # 或上传覆盖代码，保留 .env、data/
+   npm install         # 依赖有变化时
+   npm run init-db     # 幂等迁移，不清空数据
+   npm test
+   pm2 restart prg-cs2-bet-new --update-env
+   curl -f http://127.0.0.1:3000/api/health
+   ```
+
+3. Windows：备份 `config.json` 和 `data\`，用新版覆盖 `core.js`、`interactions.js`、`run.js`、`start.ps1`。保留 `config.json`、`data\delivery.json`、`data\interactions.json` 和日志，不要用 `config.example.json` 覆盖真实配置。若 `config.example.json` 有新字段，手动补到 `config.json`。
+4. `node run.js --preview` 确认正常后，按原方式启动。不要同时运行手动进程和计划任务。
+
+已记录为 `sent` 或 `unknown` 的消息不会因更新重发。
+
+## 可调整配置
 
 | 配置 | 默认值 | 含义 |
 | --- | --- | --- |
-| `games` | `["cs2", "valorant"]` | 可只保留一个游戏 |
+| `games` | `["cs2", "valorant"]` | 推送的游戏 |
 | `dailyTime` | `"12:00"` | 无早场时的日报时间 |
-| `dayStart` | `"06:00"` | 每日赛程及昨日简报的分界 |
-| `earlyMinutes` | `10` | 上午最早比赛前多少分钟发日报 |
-| `reminderMinutes` | `30` | 独立临赛提醒；设 `0` 关闭 |
-| `weeklyEnabled` | `true` | 是否发送周日预告 |
-| `weeklyTime` | `"20:00"` | 周日发送时间 |
-| `resultsLimit` | `12` | 日报最多展示多少条昨日赛果 |
-| `freshnessMinutes` | `20` | 数据超过多久未成功同步便暂停发送 |
-| `pollSeconds` | `60` | 检查间隔；因此通常在目标时刻后约一分钟内发送 |
+| `dayStart` | `"06:00"` | 一天的分界 |
+| `earlyMinutes` | `10` | 早场提前多少分钟发日报 |
+| `reminderMinutes` | `30` | 临赛提醒提前量，`0` 关闭 |
+| `weeklyEnabled` / `weeklyTime` | `true` / `"20:00"` | 周日预告 |
+| `resultsLimit` | `12` | 日报最多列多少条赛果 |
+| `freshnessMinutes` | `20` | 同步超过多久未成功即暂停发送 |
+| `pollSeconds` | `60` | 检查间隔 |
 
-修改配置后重启 Windows 任务。所有群使用同一套筛选与时间配置。网站未启用的赛事不推送。
+修改后重启任务。所有群共用一套配置。
 
 ## 常见问题
 
 | 现象 | 处理 |
 | --- | --- |
-| 找不到 `node` | 安装 Node.js 20+，重开终端；计划任务账号也需要可找到 Node |
-| 网站 HTTP 401 | 两台服务器的 feedToken / BOT_FEED_TOKEN 不一致 |
-| 网站 HTTP 503 | Linux 未配置 BOT_FEED_TOKEN，或修改后未重启网站 |
-| 网站接口格式不匹配 / 返回 HTML | 网站没更新，或 Nginx 没有代理 `/api/bot/` |
-| 提示同步过期 | 在 Linux 执行 `npm run sync:pandascore`，查看错误；确认订阅游戏成功同步，服务端时钟正确 |
-| 赛程中缺少赛事 | 在网站后台启用赛事；确认比赛时间已知、数据在未来七天内 |
-| NapCat HTTP 401/403 | 检查 NapCat Access Token |
-| NapCat HTTP 404 | 检查使用的是 OneBot HTTP 服务端口，而非 WebUI 端口 |
-| `failed` | 明确被拒绝；核对群号、QQ登录状态和群发言权限。常规任务最多重试 3 次 |
-| `unknown` | 超时或回执不完整，可能已发出。核对群消息和 NapCat 日志；程序不会盲目重发 |
-| 端口 39173 被占用 | 先停止旧进程/旧计划任务，避免同时运行两份 |
-| `dryRun` 仍为 true | 程序只预览一次并退出，不会进入正式推送循环 |
+| 找不到 `node` | 安装 Node.js 20+ 后重开终端；计划任务账号也要能找到 Node |
+| 网站 401 | `feedToken` 与 `BOT_FEED_TOKEN` 不一致 |
+| 网站 503 | Linux 未配置 `BOT_FEED_TOKEN` 或改后未重启 |
+| 返回 HTML / 格式不匹配 | 网站未更新，或 Nginx 未代理 `/api/bot/` |
+| 同步过期 | Linux 上运行 `npm run sync:pandascore` 查错误，确认服务器时钟 |
+| 缺少赛事 | 后台启用该赛事；确认时间已知且在未来七天内 |
+| NapCat 401/403 | 检查 Access Token |
+| NapCat 404 | 用的是 WebUI 端口而不是 HTTP 服务端端口 |
+| `failed` | 明确被拒；核对群号、QQ 登录和发言权限，最多重试 3 次 |
+| `unknown` | 超时或回执不完整，可能已发出；程序不会自动重发 |
+| 39173 被占用 | 已有实例在运行 |
 
-发送记录在 `data/delivery.json`，由程序以临时文件落盘后原子替换保存。更新程序时保留 `config.json` 与整个 `data` 文件夹；只替换代码。**不要为了重发而删除整个记录文件**，否则会丢失去重状态。OneBot 不提供业务幂等键，发生“已发送但没来得及保存回执”的情况无法保证恰好一次，程序会按 unknown 保守处理。
-
-当前一次完整赛程接口最多返回 10,000 场，超过会报错而非悄悄截断。消息约 1,200 字拆分，间隔 3 秒发送；同步异常时暂停正式推送，避免把缺失数据说成“没有比赛”。赛程更正每次轮询检查，不做额外的五分钟合并。简报按数据库已保存的比分生成，不是实时比分直播。
+发送记录 `data/delivery.json` 原子写入。不要为了重发删除它，否则会丢失去重状态。
