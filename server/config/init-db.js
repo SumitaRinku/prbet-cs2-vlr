@@ -131,6 +131,61 @@ function ensureDatabase() {
             UNIQUE(external_source, external_id)
         );
 
+        -- 赛事阶段（PandaScore tournament 层级）：赛程图分组与官方 bracket 的入口。
+        -- external_id 即 PandaScore 的 tournament id；has_bracket 来自其 tournament 对象。
+        CREATE TABLE IF NOT EXISTS tournament_stages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id INTEGER NOT NULL,
+            external_source TEXT NOT NULL DEFAULT 'pandascore',
+            external_id TEXT NOT NULL,
+            name TEXT,
+            slug TEXT,
+            has_bracket INTEGER NOT NULL DEFAULT 0,
+            last_synced_at TEXT,
+            bracket_synced_at TEXT,
+            bracket_error TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(external_source, external_id),
+            FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
+        );
+
+        -- 官方 bracket 节点：保存 PandaScore /tournaments/{id}/brackets 返回的每一场比赛，
+        -- 即使该比赛尚未进入近端比赛窗口（例如远期 TBD 场次）也能保留完整骨架。
+        CREATE TABLE IF NOT EXISTS bracket_nodes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stage_id INTEGER NOT NULL,
+            external_match_id TEXT NOT NULL,
+            panda_match_id TEXT,
+            name TEXT,
+            status TEXT,
+            scheduled_at TEXT,
+            position INTEGER NOT NULL DEFAULT 0,
+            team1_external_id TEXT,
+            team1_name TEXT,
+            team1_short_name TEXT,
+            team1_logo_url TEXT,
+            team1_dark_logo_url TEXT,
+            team2_external_id TEXT,
+            team2_name TEXT,
+            team2_short_name TEXT,
+            team2_logo_url TEXT,
+            team2_dark_logo_url TEXT,
+            last_synced_at TEXT,
+            UNIQUE(stage_id, external_match_id),
+            FOREIGN KEY (stage_id) REFERENCES tournament_stages(id) ON DELETE CASCADE
+        );
+
+        -- 官方 bracket 父子关系：source_type 表示本场参赛队来自上一场的胜者或败者。
+        CREATE TABLE IF NOT EXISTS bracket_edges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stage_id INTEGER NOT NULL,
+            match_external_id TEXT NOT NULL,
+            source_external_match_id TEXT NOT NULL,
+            source_type TEXT NOT NULL CHECK(source_type IN ('winner', 'loser')),
+            UNIQUE(stage_id, match_external_id, source_external_match_id),
+            FOREIGN KEY (stage_id) REFERENCES tournament_stages(id) ON DELETE CASCADE
+        );
+
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tournaments_external ON tournaments(external_source, external_id) WHERE external_source IS NOT NULL AND external_id IS NOT NULL;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_external ON teams(external_source, external_id) WHERE external_source IS NOT NULL AND external_id IS NOT NULL;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_matches_external ON matches(external_source, external_id) WHERE external_source IS NOT NULL AND external_id IS NOT NULL;
@@ -138,12 +193,23 @@ function ensureDatabase() {
         CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
         CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches(tournament_id);
         CREATE INDEX IF NOT EXISTS idx_tournament_previews_time ON tournament_previews(game_type, begin_at);
+        CREATE INDEX IF NOT EXISTS idx_tournament_stages_tournament ON tournament_stages(tournament_id);
+        CREATE INDEX IF NOT EXISTS idx_bracket_nodes_stage ON bracket_nodes(stage_id, position);
+        CREATE INDEX IF NOT EXISTS idx_bracket_edges_stage ON bracket_edges(stage_id);
         CREATE INDEX IF NOT EXISTS idx_teams_game ON teams(game_type);
         CREATE INDEX IF NOT EXISTS idx_predictions_user ON predictions(user_id);
         CREATE INDEX IF NOT EXISTS idx_predictions_match ON predictions(match_id);
         CREATE INDEX IF NOT EXISTS idx_prediction_history_user ON prediction_history(user_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_prediction_history_match ON prediction_history(match_id, created_at);
     `);
+
+    // bracket_nodes 在本轮新增时可能已被旧版本创建：幂等补齐队伍 logo 列。
+    const bracketNodeColumns = db.prepare('PRAGMA table_info(bracket_nodes)').all().map(column => column.name);
+    for (const column of ['team1_logo_url', 'team1_dark_logo_url', 'team2_logo_url', 'team2_dark_logo_url']) {
+        if (!bracketNodeColumns.includes(column)) {
+            db.exec(`ALTER TABLE bracket_nodes ADD COLUMN ${column} TEXT`);
+        }
+    }
 
     const teamColumns = db.prepare('PRAGMA table_info(teams)').all().map(column => column.name);
     if (!teamColumns.includes('game_type')) {
@@ -217,6 +283,24 @@ function ensureDatabase() {
         db.exec('ALTER TABLE matches ADD COLUMN result_locked INTEGER NOT NULL DEFAULT 0');
         db.prepare("UPDATE matches SET result_locked = 1 WHERE status = 'finished' AND winner_team_id IS NOT NULL").run();
     }
+
+    // 存量阶段回填：为已有比赛补齐 tournament_stages 记录，使新接口在首次同步前
+    // 也能按阶段返回结构。has_bracket 先置 0，下一次比赛同步会从 PandaScore 补真实值。
+    // 幂等：已存在的阶段（external_source + external_id）不覆盖同步后的元数据。
+    db.prepare(`
+        INSERT OR IGNORE INTO tournament_stages
+            (tournament_id, external_source, external_id, name, slug, has_bracket, last_synced_at)
+        SELECT m.tournament_id,
+               COALESCE(m.external_source, 'pandascore'),
+               m.stage_external_id,
+               MAX(m.stage_name),
+               MAX(m.stage_slug),
+               0,
+               MAX(m.last_synced_at)
+        FROM matches m
+        WHERE m.stage_external_id IS NOT NULL AND m.external_source = 'pandascore'
+        GROUP BY m.tournament_id, m.external_source, m.stage_external_id
+    `).run();
 
     require('./bot-schema').ensureBotSchema(db);
 

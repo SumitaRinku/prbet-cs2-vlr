@@ -5,11 +5,24 @@ const {
     bracketKind,
     bracketTeamState,
     buildBracketModel,
+    buildTournamentStagesWithOfficial,
+    detectSwiss16,
     doubleElimRounds,
+    isGslGroupStage,
+    looksLikeSwissStage,
     matchesByBracketKind,
     playoffGroupsFromMatches,
-    stageMatches
+    playoffRoundLabel,
+    roundGroupsFromMatches,
+    stageDiagram,
+    stageMatches,
+    swissRoundBuckets
 } = require('../public/js/bracket');
+
+// stageDiagram 渲染时依赖宿主页提供的全局函数。
+global.escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+global.logoHtml = () => 'LOGO';
+global.focusTournamentMatch = () => {};
 
 function match(id, name, stageName = 'Playoffs', stageExternalId = 1) {
     return {
@@ -122,4 +135,212 @@ test('VCT-style Swiss plus double elimination is separated by stage metadata', (
     assertComplete(model, matches);
     assert.ok(model.stages.some(stage => stage.type === 'double-elim-bracket'));
     assert.ok(model.stages.some(stage => stage.type === 'swiss-stage'));
+});
+
+function officialNode(matchRow) {
+    return {
+        external_match_id: `cs2:${matchRow.id}`,
+        panda_match_id: String(matchRow.id),
+        local_match_id: matchRow.id,
+        name: matchRow.name,
+        status: 'finished',
+        scheduled_at: matchRow.match_time,
+        position: 0,
+        team1_name: matchRow.team1_name,
+        team1_short_name: matchRow.team1_name,
+        team2_name: matchRow.team2_name,
+        team2_short_name: matchRow.team2_name
+    };
+}
+
+function officialStage(externalId, name, matches, edges = [], hasBracket = 1) {
+    return {
+        external_id: String(externalId),
+        name,
+        has_bracket: hasBracket,
+        nodes: matches.map(officialNode),
+        edges
+    };
+}
+
+test('Group Stage with Swiss rounds is recognized as Swiss instead of an empty group', () => {
+    const counts = [8, 8, 8, 6, 3];
+    const matches = counts.flatMap((count, roundIndex) => Array.from({ length: count }, (_, index) =>
+        match(2000 + roundIndex * 100 + index, `Round ${roundIndex + 1}: A vs B`, 'Group Stage', 22222)));
+    assert.equal(looksLikeSwissStage(matches, 'Group Stage'), true);
+    assert.equal(looksLikeSwissStage([match(1, 'A vs B', 'Group A', 22265)], 'Group A'), false);
+
+    const stages = buildTournamentStagesWithOfficial(matches, [officialStage(22222, 'Group Stage', matches, [], 0)], { gameType: 'cs2' });
+    assert.equal(stages.length, 1);
+    assert.equal(stages[0].type, 'swiss-stage');
+    assert.deepEqual(stages[0].groups.map(group => group.matches.length), counts);
+});
+
+test('official edges drive single-elim, double-elim and GSL group stages', () => {
+    const singles = [
+        match(3001, 'Quarterfinal 1: A vs B', 'Playoffs', 22228),
+        match(3002, 'Quarterfinal 2: C vs D', 'Playoffs', 22228),
+        match(3003, 'Semifinal 1: A vs C', 'Playoffs', 22228),
+        match(3004, 'Grand final: A vs D', 'Playoffs', 22228)
+    ];
+    const singleEdges = [
+        { match_external_id: 'cs2:3003', source_external_match_id: 'cs2:3001', source_type: 'winner' },
+        { match_external_id: 'cs2:3003', source_external_match_id: 'cs2:3002', source_type: 'winner' },
+        { match_external_id: 'cs2:3004', source_external_match_id: 'cs2:3003', source_type: 'winner' }
+    ];
+    const single = buildTournamentStagesWithOfficial(singles, [officialStage(22228, 'Playoffs', singles, singleEdges)], { gameType: 'cs2' });
+    assert.equal(single[0].type, 'official-single');
+    assert.equal(single[0].officialMatches.length, 4);
+    assert.equal(single[0].edges.length, 3);
+
+    const upper = [
+        match(3101, 'Upper bracket round 1 match 1: A vs B', 'Playoffs', 22229),
+        match(3102, 'Upper bracket round 1 match 2: C vs D', 'Playoffs', 22229),
+        match(3103, 'Upper bracket final: A vs C', 'Playoffs', 22229)
+    ];
+    const lower = [
+        match(3111, 'Lower bracket round 1 match 1: B vs D', 'Playoffs', 22229),
+        match(3112, 'Lower bracket final: B vs C', 'Playoffs', 22229)
+    ];
+    const grand = match(3121, 'Grand final: A vs B', 'Playoffs', 22229);
+    const doubleMatches = [...upper, ...lower, grand];
+    const doubleEdges = [
+        { match_external_id: 'cs2:3103', source_external_match_id: 'cs2:3101', source_type: 'winner' },
+        { match_external_id: 'cs2:3103', source_external_match_id: 'cs2:3102', source_type: 'winner' },
+        { match_external_id: 'cs2:3111', source_external_match_id: 'cs2:3101', source_type: 'loser' },
+        { match_external_id: 'cs2:3112', source_external_match_id: 'cs2:3111', source_type: 'winner' },
+        { match_external_id: 'cs2:3121', source_external_match_id: 'cs2:3103', source_type: 'winner' },
+        { match_external_id: 'cs2:3121', source_external_match_id: 'cs2:3112', source_type: 'winner' }
+    ];
+    const double = buildTournamentStagesWithOfficial(doubleMatches, [officialStage(22229, 'Playoffs', doubleMatches, doubleEdges)], { gameType: 'cs2' });
+    assert.equal(double[0].type, 'official-double');
+
+    // GSL 组：没有 Upper/Lower 与轮次名，edges 推导出 Round 1/2/3。
+    const gsl = [
+        match(3201, 'Opening 1: A vs B', 'Group 1', 21626, 0),
+        match(3202, 'Opening 2: C vs D', 'Group 1', 21626, 0),
+        match(3203, 'Winners match: A vs C', 'Group 1', 21626, 0),
+        match(3204, 'Elimination match: B vs D', 'Group 1', 21626, 0),
+        match(3205, 'Decider match: B vs C', 'Group 1', 21626, 0)
+    ];
+    const gslEdges = [
+        { match_external_id: 'cs2:3203', source_external_match_id: 'cs2:3201', source_type: 'winner' },
+        { match_external_id: 'cs2:3203', source_external_match_id: 'cs2:3202', source_type: 'winner' },
+        { match_external_id: 'cs2:3204', source_external_match_id: 'cs2:3201', source_type: 'loser' },
+        { match_external_id: 'cs2:3204', source_external_match_id: 'cs2:3202', source_type: 'loser' },
+        { match_external_id: 'cs2:3205', source_external_match_id: 'cs2:3203', source_type: 'loser' },
+        { match_external_id: 'cs2:3205', source_external_match_id: 'cs2:3204', source_type: 'winner' }
+    ];
+    const gslStage = buildTournamentStagesWithOfficial(gsl, [officialStage(21626, 'Group 1', gsl, gslEdges, 0)], { gameType: 'cs2' });
+    assert.equal(gslStage[0].type, 'gsl-group');
+});
+
+test('Round of N ordering stays before quarter-finals', () => {
+    assert.equal(playoffRoundLabel({ name: 'Round of 32 match 1' }).order, 30);
+    assert.equal(playoffRoundLabel({ name: 'Round of 16 match 1' }).order, 40);
+    assert.equal(playoffRoundLabel({ name: 'Quarterfinal 1' }).order, 70);
+});
+
+function tbdMatch(id, round) {
+    return {
+        ...match(id, `Round ${round}: TBD vs TBD`, 'Group Stage', 22222),
+        status: 'upcoming',
+        team1_name: 'TBD',
+        team2_name: 'TBD'
+    };
+}
+
+test('unplayed Swiss rounds are placed into skeleton buckets instead of an extra 0-0 bucket', () => {
+    const counts = [8, 8, 8, 6, 3];
+    const matches = counts.flatMap((count, roundIndex) =>
+        Array.from({ length: count }, (_, index) => tbdMatch(4000 + roundIndex * 100 + index, roundIndex + 1)));
+    const groups = roundGroupsFromMatches(matches);
+    assert.equal(detectSwiss16(groups), true);
+
+    const buckets = swissRoundBuckets(groups, true);
+    assert.deepEqual(buckets.map(group => group.buckets.reduce((sum, bucket) => sum + bucket.matches.length, 0)), counts);
+    assert.deepEqual(buckets[1].buckets.map(bucket => bucket.label), ['1-0组', '0-1组']);
+    assert.deepEqual(buckets[2].buckets.map(bucket => bucket.label), ['2-0组', '1-1组', '0-2组']);
+    assert.deepEqual(buckets[3].buckets.map(bucket => bucket.label), ['2-1组', '1-2组']);
+    assert.deepEqual(buckets[4].buckets.map(bucket => bucket.label), ['2-2组']);
+    // 只有 R1 允许出现 0-0 桶
+    assert.equal(buckets.slice(1).some(group => group.buckets.some(bucket => bucket.label === '0-0组')), false);
+});
+
+test('Swiss stage uses official nodes to fill future rounds while metrics stay local', () => {
+    const counts = [8, 8, 8, 6, 3];
+    const all = counts.flatMap((count, roundIndex) =>
+        Array.from({ length: count }, (_, index) => tbdMatch(5000 + roundIndex * 100 + index, roundIndex + 1)));
+    const local = all.slice(0, 24);
+    const stages = buildTournamentStagesWithOfficial(local, [officialStage(22222, 'Group Stage', all, [], 0)], { gameType: 'cs2' });
+    const stage = stages[0];
+    assert.equal(stage.type, 'swiss-stage');
+    assert.deepEqual(stage.groups.map(group => group.matches.length), counts);
+    assert.equal(stage.metricsMatches.length, 24);
+});
+
+test('GSL group is recognized from Winners/Elimination/Decider names even without edges', () => {
+    const gsl = [
+        match(3201, 'Opening 1: A vs B', 'Group 1', 21626, 0),
+        match(3202, 'Opening 2: C vs D', 'Group 1', 21626, 0),
+        match(3203, 'Winners match: A vs C', 'Group 1', 21626, 0),
+        match(3204, 'Elimination match: B vs D', 'Group 1', 21626, 0),
+        match(3205, 'Decider match: B vs C', 'Group 1', 21626, 0)
+    ];
+    assert.equal(isGslGroupStage(gsl), true);
+    const stages = buildTournamentStagesWithOfficial(gsl, [officialStage(21626, 'Group 1', gsl, [], 0)], { gameType: 'cs2' });
+    assert.equal(stages[0].type, 'gsl-group');
+});
+
+test('GSL diagram uses Opening / Winners-Elimination / Decider semantic columns', () => {
+    const gsl = [
+        match(3301, 'A vs B', 'Group 1', 21626, 0),
+        match(3302, 'C vs D', 'Group 1', 21626, 0),
+        match(3303, "Winners' match: A vs C", 'Group 1', 21626, 0),
+        match(3304, 'Elimination match: B vs D', 'Group 1', 21626, 0),
+        match(3305, 'Decider match: B vs C', 'Group 1', 21626, 0)
+    ];
+    const edges = [
+        { match_external_id: 'cs2:3303', source_external_match_id: 'cs2:3301', source_type: 'winner' },
+        { match_external_id: 'cs2:3303', source_external_match_id: 'cs2:3302', source_type: 'winner' },
+        { match_external_id: 'cs2:3304', source_external_match_id: 'cs2:3301', source_type: 'loser' },
+        { match_external_id: 'cs2:3304', source_external_match_id: 'cs2:3302', source_type: 'loser' },
+        { match_external_id: 'cs2:3305', source_external_match_id: 'cs2:3303', source_type: 'loser' },
+        { match_external_id: 'cs2:3305', source_external_match_id: 'cs2:3304', source_type: 'winner' }
+    ];
+    const stage = buildTournamentStagesWithOfficial(gsl, [officialStage(21626, 'Group 1', gsl, edges, 0)], { gameType: 'cs2' })[0];
+    const html = stageDiagram(stage);
+    assert.match(html, /Opening round/);
+    assert.match(html, /Winners(?:&#39;|') match/);
+    assert.match(html, /Elimination match/);
+    assert.match(html, /Decider match/);
+    // 仅绘制胜者晋级线，败者去向用比分旁箭头标识。
+    assert.equal((html.match(/<path d="/g) || []).length, 3);
+    assert.doesNotMatch(html, /class="bracket-edge loser"/);
+});
+
+test('third place match is separated from the Grand Final column', () => {
+    const matches = [
+        match(3401, 'Semifinal 1: A vs B', 'Playoffs', 22133),
+        match(3402, 'Semifinal 2: C vs D', 'Playoffs', 22133),
+        match(3403, 'Grand Final: A vs C', 'Playoffs', 22133),
+        match(3404, '3rd Place Match: B vs D', 'Playoffs', 22133)
+    ];
+    const edges = [
+        { match_external_id: 'cs2:3403', source_external_match_id: 'cs2:3401', source_type: 'winner' },
+        { match_external_id: 'cs2:3403', source_external_match_id: 'cs2:3402', source_type: 'winner' },
+        { match_external_id: 'cs2:3404', source_external_match_id: 'cs2:3401', source_type: 'loser' },
+        { match_external_id: 'cs2:3404', source_external_match_id: 'cs2:3402', source_type: 'loser' }
+    ];
+    const stage = buildTournamentStagesWithOfficial(matches, [officialStage(22133, 'Playoffs', matches, edges, 0)], { gameType: 'cs2' })[0];
+    const html = stageDiagram(stage);
+    assert.match(html, /official-lane-label">3rd Place/);
+    assert.match(html, /Semi-finals/);
+    assert.match(html, /Grand final/);
+    assert.equal((html.match(/official-final-slot/g) || []).length, 1);
+    assert.equal((html.match(/pb2-title[^>]*>Finals</g) || []).length, 0);
+    // Assert geometry rather than pinning a particular visual skin's pixel dimensions.
+    const positions = [...html.matchAll(/data-bracket-match="cs2:(340[123])" style="left:(\d+)px;top:(\d+)px/g)];
+    const y = new Map(positions.map(item => [item[1], Number(item[3])]));
+    assert.equal(y.get('3403'), (y.get('3401') + y.get('3402')) / 2);
 });

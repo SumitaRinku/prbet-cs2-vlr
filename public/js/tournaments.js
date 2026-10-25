@@ -6,6 +6,7 @@ const state = {
     tier: localStorage.getItem('tournamentTierFilter') || '',
     search: '',
     activeTournamentId: new URLSearchParams(location.search).get('tournament') || '',
+    activeTournamentData: null,
     previews: [],
     previewDays: 0,
     previewCollapsed: localStorage.getItem('previewCollapsed') === '1'
@@ -144,10 +145,29 @@ function previewItem(preview) {
     </article>`;
 }
 
+// 回看列表已有对应赛事时不再重复出现在预告里（external_id 与名称兜底匹配）
+function listedTournamentKeys() {
+    const keys = { externalIds: new Set(), names: new Set() };
+    state.tournaments.forEach(tournament => {
+        if (tournament.external_id) keys.externalIds.add(tournament.external_id);
+        keys.names.add(`${tournament.game_type}:${String(tournament.name || '').trim().toLowerCase()}`);
+    });
+    return keys;
+}
+
+function previewAlreadyListed(preview, keys) {
+    if (preview.external_id && keys.externalIds.has(preview.external_id)) return true;
+    return keys.names.has(`${preview.game_type}:${String(preview.name || '').trim().toLowerCase()}`);
+}
+
 function renderPreviews() {
     if (!previewSectionEl) return;
     if (state.activeTournamentId) { previewSectionEl.hidden = true; return; }
-    const rows = state.previews.filter(preview => !state.game || preview.game_type === state.game);
+    const listed = listedTournamentKeys();
+    const rows = state.previews.filter(preview => {
+        if (state.game && preview.game_type !== state.game) return false;
+        return !previewAlreadyListed(preview, listed);
+    });
     if (!rows.length) { previewSectionEl.hidden = true; return; }
     previewSectionEl.hidden = false;
     previewSectionEl.classList.toggle('collapsed', state.previewCollapsed);
@@ -369,8 +389,11 @@ function tournamentCard(tournament) {
     const upcoming = tournament.upcoming_count || 0;
     const isDone = total > 0 && finished >= total;
     const progress = total ? Math.round((finished / total) * 100) : 0;
-    const stateLabel = ongoing ? '进行中' : isDone ? '已结束' : '筹备中';
-    const stateClass = ongoing ? 'live' : isDone ? 'done' : 'wait';
+    // 已开赛即视为进行中：暂无直播场次时也不能降级为「筹备中」
+    const hasStarted = Boolean(tournament.begin_at) && new Date(tournament.begin_at).getTime() <= Date.now();
+    const isLive = !isDone && (ongoing > 0 || (hasStarted && total > 0));
+    const stateLabel = isLive ? '进行中' : isDone ? '已结束' : '筹备中';
+    const stateClass = isLive ? 'live' : isDone ? 'done' : 'wait';
     return `<article class="ar-card ${tournament.game_type} ${stateClass}" data-id="${tournament.id}" onclick="enterTournament(${tournament.id})" tabindex="0" role="button" aria-label="查看 ${escapeHtml(tournament.name)}">
         <div class="ar-card-logo">${tournamentLogoHtml(tournament)}</div>
         <div class="ar-card-body">
@@ -383,14 +406,14 @@ function tournamentCard(tournament) {
                 ${tierBadge(tournament)}
                 <span>${formatDay(tournament.begin_at)}${tournament.end_at ? ` - ${formatDay(tournament.end_at)}` : ''}</span>
             </p>
-            <div class="ar-progress" title="完成 ${progress}%"><i style="width:${progress}%"></i></div>
+            ${isDone ? '' : `<div class="ar-progress" title="完成 ${progress}%"><i style="width:${progress}%"></i></div>
             <div class="ar-card-stats">
                 <span><b>${total}</b>比赛</span>
-                ${isDone ? '' : `<span><b>${finished}</b>已结算</span>`}
+                <span><b>${finished}</b>已结算</span>
                 ${upcoming ? `<span><b>${upcoming}</b>待开始</span>` : ''}
                 <span><b>${predictions}</b>人次预测</span>
                 <span class="ar-pct">${progress}%</span>
-            </div>
+            </div>`}
         </div>
         <span class="ar-open" aria-hidden="true">›</span>
     </article>`;
@@ -402,9 +425,13 @@ function tournamentDetailPage(data) {
     const finished = tournament.finished_count || matches.filter(match => match.status === 'finished').length;
     const total = tournament.match_count || matches.length;
     const predictions = tournament.prediction_count || matches.reduce((sum, match) => sum + (match.prediction_count || 0), 0);
-    const model = buildBracketModel(matches);
-    const stages = model.stages;
-    const stageTotal = stages.reduce((sum, stage) => sum + stageMatches(stage).length, 0);
+    const stages = buildTournamentStagesWithOfficial(matches, data.bracketStages, { gameType: tournament.game_type });
+    // 只统计本地已入库比赛：官方 nodes 可能包含尚未进入同步窗口的未来场次。
+    const stageTotal = new Set(
+        stages.flatMap(stage => stageMatches(stage))
+            .filter(match => match.id)
+            .map(match => String(match.id))
+    ).size;
     const integrityNotice = stageTotal === matches.length
         ? ''
         : `<div class="bracket-integrity-warning">赛程数据不完整：已归类 ${stageTotal}/${matches.length} 场</div>`;
@@ -435,16 +462,26 @@ window.addEventListener('resize', () => {
     const compact = isCompactBracketViewport();
     if (compact === lastBracketCompactMode) return;
     lastBracketCompactMode = compact;
-    if (state.activeTournamentId) openTournamentPage(state.activeTournamentId);
+    // 仅布局随断点变化：用缓存数据重绘，不再重新请求赛事与 bracket。
+    if (state.activeTournamentData) {
+        tournamentsEl.innerHTML = tournamentDetailPage(state.activeTournamentData);
+    }
 });
 async function openTournamentPage(id) {
     if (!tournamentsEl) return;
     state.activeTournamentId = String(id);
+    state.activeTournamentData = null;
     updateTournamentUrl();
     applyViewMode();
     tournamentsEl.innerHTML = '<div class="ar-loading">加载赛事详情...</div>';
     try {
-        const data = await sharedApi(`/tournaments/${id}`);
+        // bracket 是增强数据：失败时照常展示比赛列表和旧推断赛程图。
+        const [detail, bracket] = await Promise.all([
+            sharedApi(`/tournaments/${id}`),
+            sharedApi(`/tournaments/${id}/brackets`).catch(() => null)
+        ]);
+        const data = { ...detail, bracketStages: (bracket && bracket.stages) || [] };
+        state.activeTournamentData = data;
         tournamentsEl.innerHTML = tournamentDetailPage(data);
         const matchAnchor = location.hash.match(/^#match-row-(\d+)$/);
         if (matchAnchor) requestAnimationFrame(() => focusTournamentMatch(matchAnchor[1]));
@@ -464,6 +501,7 @@ function enterTournament(id) {
 
 function showTournamentList() {
     state.activeTournamentId = '';
+    state.activeTournamentData = null;
     applyViewMode();
     const restore = () => window.scrollTo(0, state.listScrollY || 0);
     // 已加载过列表时直接重绘并恢复滚动位置，避免重新请求后跳回顶部

@@ -131,6 +131,47 @@ router.get('/:id', (req, res) => {
     res.json({ tournament, matches: matchRows(tournament.id) });
 });
 
+// 官方赛程图数据：阶段 + 节点 + 父子边。节点来自 PandaScore /tournaments/{id}/brackets，
+// 因此即使比赛尚未进入近端同步窗口（远期 TBD 场次）也能保留完整骨架。
+router.get('/:id/brackets', (req, res) => {
+    const tournament = db.prepare('SELECT id, name, game_type FROM tournaments WHERE id = ? AND is_active = 1')
+        .get(req.params.id);
+    if (!tournament) return res.status(404).json({ error: '赛事不存在' });
+
+    const stages = db.prepare(`
+        SELECT id, external_id, name, slug, has_bracket, last_synced_at, bracket_synced_at, bracket_error
+        FROM tournament_stages
+        WHERE tournament_id = ? AND external_source = 'pandascore'
+        ORDER BY id
+    `).all(tournament.id);
+
+    const nodeStmt = db.prepare(`
+        SELECT bn.*,
+            (SELECT m.id FROM matches m
+             WHERE m.external_source = 'pandascore'
+               AND (m.external_id = bn.external_match_id OR m.external_id = bn.panda_match_id)
+             LIMIT 1) AS local_match_id
+        FROM bracket_nodes bn
+        WHERE bn.stage_id = ?
+        ORDER BY bn.position, bn.id
+    `);
+    const edgeStmt = db.prepare(`
+        SELECT match_external_id, source_external_match_id, source_type
+        FROM bracket_edges
+        WHERE stage_id = ?
+        ORDER BY id
+    `);
+
+    res.json({
+        tournament,
+        stages: stages.map(stage => ({
+            ...stage,
+            nodes: nodeStmt.all(stage.id),
+            edges: edgeStmt.all(stage.id)
+        }))
+    });
+});
+
 router.get('/:id/leaderboard', (req, res) => {
     const tournament = db.prepare('SELECT id, name, game_type FROM tournaments WHERE id = ? AND is_active = 1').get(req.params.id);
     if (!tournament) return res.status(404).json({ error: '赛事不存在' });

@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const { settleMatch, recalculateUserScores } = require('../utils/settlement');
 const { getPreviewDays } = require('./settings');
+const { canonicalBracketMatchId, parseBracketPayload } = require('./bracketModel');
 
 const SOURCE = 'pandascore';
 const BASE_URL = process.env.PANDASCORE_BASE_URL || 'https://api.pandascore.co';
@@ -15,6 +16,15 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
 // 预告只拉赛事层级数据，默认每 6 小时刷新一次，避免把远期赛事拆成每场比赛。
 const DEFAULT_PREVIEW_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const MIN_PREVIEW_INTERVAL_MS = 30 * 60 * 1000;
+// 官方 bracket 拓扑刷新频率：比赛同步仍为 5 分钟，但 bracket 父子关系变化很慢，
+// 默认 30 分钟拉一次，避免每轮都对所有阶段调用 /tournaments/{id}/brackets。
+const DEFAULT_BRACKET_INTERVAL_MS = 30 * 60 * 1000;
+const MIN_BRACKET_INTERVAL_MS = 5 * 60 * 1000;
+// 不在当前比赛窗口内的历史阶段：edges 基本不变，低频刷新即可，用于首次补齐所有赛程图。
+const DEFAULT_BRACKET_HISTORY_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const MIN_BRACKET_HISTORY_INTERVAL_MS = 30 * 60 * 1000;
+const DEFAULT_BRACKET_CONCURRENCY = 4;
+const MAX_BRACKET_PAGES = 3;
 const GAMES = {
     cs2: { endpoint: '/csgo/matches', seriesEndpoint: '/csgo/series/upcoming', label: 'CS2' },
     valorant: { endpoint: '/valorant/matches', seriesEndpoint: '/valorant/series/upcoming', label: 'Valorant' }
@@ -88,6 +98,25 @@ function requestTimeoutMs() {
     return Number.isFinite(value) && value > 0 ? value : DEFAULT_REQUEST_TIMEOUT_MS;
 }
 
+function bracketSyncEnabled() {
+    return process.env.PANDASCORE_BRACKET_SYNC_ENABLED !== 'false';
+}
+
+function bracketIntervalMs() {
+    const value = Number(process.env.PANDASCORE_BRACKET_SYNC_INTERVAL_MS);
+    return Number.isFinite(value) && value > 0 ? Math.max(value, MIN_BRACKET_INTERVAL_MS) : DEFAULT_BRACKET_INTERVAL_MS;
+}
+
+function bracketHistoryIntervalMs() {
+    const value = Number(process.env.PANDASCORE_BRACKET_HISTORY_INTERVAL_MS);
+    return Number.isFinite(value) && value > 0 ? Math.max(value, MIN_BRACKET_HISTORY_INTERVAL_MS) : DEFAULT_BRACKET_HISTORY_INTERVAL_MS;
+}
+
+function bracketConcurrency() {
+    const value = Number(process.env.PANDASCORE_BRACKET_CONCURRENCY);
+    return Number.isFinite(value) && value > 0 ? Math.min(Math.floor(value), 8) : DEFAULT_BRACKET_CONCURRENCY;
+}
+
 function iso(value) {
     if (!value) return null;
     const date = new Date(value);
@@ -115,7 +144,10 @@ function stageFromMatch(match) {
     return {
         name: stage.name || stage.full_name || null,
         slug: stage.slug || null,
-        external_id: stage.id ? String(stage.id) : null
+        external_id: stage.id ? String(stage.id) : null,
+        // has_bracket 决定是否值得调用官方 /brackets；PandaScore 未返回时保留 null，
+        // 同步写入阶段表时不会把已知值覆盖成 0。
+        has_bracket: stage.has_bracket === true ? 1 : stage.has_bracket === false ? 0 : null
     };
 }
 
@@ -425,6 +457,140 @@ function upsertTournament(match, now) {
     return inserted.lastInsertRowid;
 }
 
+// 赛事阶段（PandaScore tournament 层级）落库。stageCache 用于一轮同步内去重，
+// 避免每场比赛都重复查询/更新同一阶段。
+function upsertTournamentStage(tournamentId, stage, now, stageCache = null) {
+    if (!stage || !stage.external_id) return null;
+    if (stageCache && stageCache.has(stage.external_id)) return stageCache.get(stage.external_id);
+
+    const existing = db.prepare('SELECT id FROM tournament_stages WHERE external_source = ? AND external_id = ?')
+        .get(SOURCE, stage.external_id);
+    let stageId;
+    if (existing) {
+        db.prepare(`UPDATE tournament_stages
+            SET tournament_id = ?, name = COALESCE(?, name), slug = COALESCE(?, slug),
+                has_bracket = COALESCE(?, has_bracket), last_synced_at = ?
+            WHERE id = ?`)
+            .run(tournamentId, stage.name, stage.slug, stage.has_bracket, now, existing.id);
+        stageId = existing.id;
+    } else {
+        const inserted = db.prepare(`INSERT INTO tournament_stages
+            (tournament_id, external_source, external_id, name, slug, has_bracket, last_synced_at)
+            VALUES (?, ?, ?, ?, ?, COALESCE(?, 0), ?)`)
+            .run(tournamentId, SOURCE, stage.external_id, stage.name, stage.slug, stage.has_bracket, now);
+        stageId = inserted.lastInsertRowid;
+    }
+    if (stageCache) stageCache.set(stage.external_id, stageId);
+    return stageId;
+}
+
+// 整阶段替换：官方 bracket 是完整快照，先清空再写入，避免残留已失效的节点/边。
+function replaceStageBrackets(stageId, payload, now) {
+    const nodes = payload.nodes || [];
+    const edges = payload.edges || [];
+    const write = db.transaction(() => {
+        db.prepare('DELETE FROM bracket_edges WHERE stage_id = ?').run(stageId);
+        db.prepare('DELETE FROM bracket_nodes WHERE stage_id = ?').run(stageId);
+        const insertNode = db.prepare(`INSERT INTO bracket_nodes
+            (stage_id, external_match_id, panda_match_id, name, status, scheduled_at, position,
+             team1_external_id, team1_name, team1_short_name, team1_logo_url, team1_dark_logo_url,
+             team2_external_id, team2_name, team2_short_name, team2_logo_url, team2_dark_logo_url,
+             last_synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        for (const node of nodes) {
+            insertNode.run(stageId, node.external_match_id, node.panda_match_id, node.name, node.status,
+                node.scheduled_at, node.position,
+                node.team1_external_id, node.team1_name, node.team1_short_name, node.team1_logo_url, node.team1_dark_logo_url,
+                node.team2_external_id, node.team2_name, node.team2_short_name, node.team2_logo_url, node.team2_dark_logo_url,
+                now);
+        }
+        const insertEdge = db.prepare(`INSERT INTO bracket_edges
+            (stage_id, match_external_id, source_external_match_id, source_type)
+            VALUES (?, ?, ?, ?)`);
+        for (const edge of edges) {
+            insertEdge.run(stageId, edge.match_external_id, edge.source_external_match_id, edge.source_type);
+        }
+        db.prepare('UPDATE tournament_stages SET bracket_synced_at = ?, bracket_error = NULL WHERE id = ?')
+            .run(now, stageId);
+    });
+    write();
+}
+
+async function fetchStageBrackets(stageExternalId) {
+    const pathname = `/tournaments/${encodeURIComponent(String(stageExternalId))}/brackets`;
+    const rows = [];
+    for (let page = 1; page <= MAX_BRACKET_PAGES; page++) {
+        const data = await fetchJson(pathname, {
+            'page[number]': page,
+            'page[size]': PER_PAGE
+        });
+        if (!Array.isArray(data)) throw new Error('PandaScore 返回了非数组 bracket 数据');
+        rows.push(...data);
+        if (data.length < PER_PAGE) break;
+        if (page === MAX_BRACKET_PAGES) throw new Error('PandaScore bracket 超过分页上限');
+    }
+    return rows;
+}
+
+// 挑出需要刷新结构的阶段：
+// - has_bracket 只是提示，不能作为硬过滤（真实数据中 Week 2 为 false 但仍有 previous_matches）；
+// - 当前比赛窗口内的阶段按 30 分钟刷新；
+// - 窗口外的历史阶段按 6 小时低频补刷，首次运行会把所有启用赛事的阶段补齐。
+function stageBracketCandidates(stageExternalIds, now) {
+    const ids = [...new Set((stageExternalIds || []).filter(Boolean))];
+    const nowMs = new Date(now).getTime();
+    const currentCutoff = new Date(nowMs - bracketIntervalMs()).toISOString();
+    const historyCutoff = new Date(nowMs - bracketHistoryIntervalMs()).toISOString();
+    const params = [SOURCE];
+    let currentClause = '0';
+    if (ids.length) {
+        currentClause = `(ts.bracket_synced_at < ? AND ts.external_id IN (${ids.map(() => '?').join(',')}))`;
+        params.push(currentCutoff, ...ids);
+    }
+    params.push(historyCutoff);
+    return db.prepare(`
+        SELECT ts.id, ts.external_id, ts.name, t.game_type
+        FROM tournament_stages ts
+        JOIN tournaments t ON t.id = ts.tournament_id
+        WHERE ts.external_source = ?
+            AND t.is_active = 1
+            -- 只同步 PandaScore 数字 ID 的阶段；手动/本地阶段（如 local-iem-...）不应请求官方接口
+            AND ts.external_id NOT GLOB '*[^0-9]*'
+            AND (ts.bracket_synced_at IS NULL OR ${currentClause} OR ts.bracket_synced_at < ?)
+    `).all(...params);
+}
+
+function recordStageBracketError(stageId, error) {
+    const message = String((error && error.message) || error || '').slice(0, 500);
+    db.prepare('UPDATE tournament_stages SET bracket_error = ? WHERE id = ?').run(message, stageId);
+}
+
+// 并发抓取多个阶段的官方 bracket。单个阶段失败只记录错误，不影响整轮比赛同步。
+async function syncStageBrackets(stages, now) {
+    const result = { synced: 0, failed: 0, errors: [] };
+    if (!stages.length) return result;
+    let cursor = 0;
+    const worker = async () => {
+        while (cursor < stages.length) {
+            const stage = stages[cursor++];
+            try {
+                const rows = await fetchStageBrackets(stage.external_id);
+                replaceStageBrackets(stage.id, parseBracketPayload(rows, stage.game_type), now);
+                result.synced += 1;
+            } catch (error) {
+                result.failed += 1;
+                // 对外只保留阶段名，详细错误写入 stage.bracket_error 并打日志，避免同步消息被 404 body 撑长。
+                result.errors.push(stage.name || stage.external_id);
+                recordStageBracketError(stage.id, error);
+                console.error(`[PandaScore][bracket] 阶段 ${stage.external_id} 同步失败:`, error.message);
+            }
+        }
+    };
+    const workers = Array.from({ length: Math.min(bracketConcurrency(), stages.length) }, worker);
+    await Promise.all(workers);
+    return result;
+}
+
 function upsertTeam(team, gameType, now) {
     const externalId = team.external_id ? `${gameType}:${team.external_id}` : null;
     const existing = findOrUpgradeExternalId('teams', externalId, gameType, now);
@@ -469,7 +635,7 @@ function pruneExpiredInactiveTournaments(now) {
     return rows.length;
 }
 
-function upsertMatch(match, now) {
+function upsertMatch(match, now, stageCache = null) {
     const gameType = match.__gameType || 'cs2';
     const opponents = Array.isArray(match.opponents) ? match.opponents : [];
     const team1 = teamFromOpponent(opponents[0]);
@@ -483,6 +649,9 @@ function upsertMatch(match, now) {
     if (!tournamentId) return { skipped: true, disabled: true };
     const tournament = db.prepare('SELECT is_active FROM tournaments WHERE id = ?').get(tournamentId);
     const tournamentActive = !tournament || tournament.is_active === 1;
+    // 阶段元数据先落库：即使本场比赛因数据异常被跳过，也能保证阶段和 has_bracket 可被 bracket 同步发现。
+    const stage = stageFromMatch(match);
+    upsertTournamentStage(tournamentId, stage, now, stageCache);
 
     // 任一方未定则用 TBD 占位；此类比赛强制关闭下注。
     const team1IsTbd = !team1;
@@ -503,7 +672,6 @@ function upsertMatch(match, now) {
     const syncResults = !hasTbd && status === 'finished' && process.env.PANDASCORE_SYNC_RESULTS !== 'false';
     const team1Score = isForfeit ? (winnerId === team1Id ? 1 : 0) : (syncResults ? scoreFor(match, team1.external_id) : null);
     const team2Score = isForfeit ? (winnerId === team2Id ? 1 : 0) : (syncResults ? scoreFor(match, team2.external_id) : null);
-    const stage = stageFromMatch(match);
     const sourceTime = iso(match.scheduled_at) || iso(match.begin_at);
     const matchTime = sourceTime || now;
     const externalId = `${gameType}:${match.id}`;
@@ -646,11 +814,13 @@ async function syncPandascoreMatches(mode = 'manual') {
         const now = new Date().toISOString();
         let matchesUpserted = 0;
         let matchesFinished = 0;
+        // 一轮同步内共享阶段缓存，避免每场比赛都重复 upsert 同一阶段。
+        const stageCache = new Map();
 
         const tx = db.transaction(() => {
             let scoresChanged = false;
             for (const row of rows) {
-                const result = upsertMatch(row, now);
+                const result = upsertMatch(row, now, stageCache);
                 if (!result.skipped) {
                     matchesUpserted++;
                     if (result.finished) matchesFinished++;
@@ -670,13 +840,38 @@ async function syncPandascoreMatches(mode = 'manual') {
         });
         tx();
 
+        // 官方 bracket 拓扑：只对本轮出现、且 has_bracket=1 的阶段低频刷新。
+        // 单个阶段失败不阻断比赛同步，错误写入 stage.bracket_error 供后台排查。
+        let bracketSummary = null;
+        if (bracketSyncEnabled()) {
+            try {
+                const candidates = stageBracketCandidates([...stageCache.keys()], now);
+                if (candidates.length) bracketSummary = await syncStageBrackets(candidates, now);
+            } catch (error) {
+                console.error('[PandaScore][bracket] bracket 同步异常:', error.message);
+                bracketSummary = { synced: 0, failed: 1, errors: [error.message] };
+            }
+        }
+
         const teams = Math.max(db.prepare('SELECT COUNT(*) count FROM teams WHERE external_source = ?').get(SOURCE).count - beforeTeams, 0);
         const tournaments = Math.max(db.prepare('SELECT COUNT(*) count FROM tournaments WHERE external_source = ?').get(SOURCE).count - beforeTours, 0);
-        const message = `同步完成，读取 ${rows.length} 场比赛${failures.length ? `（部分失败：${failures.join('；')}）` : ''}`;
+        const bracketNote = bracketSummary
+            ? `；Bracket ${bracketSummary.synced} 个阶段${bracketSummary.failed ? `，失败 ${bracketSummary.failed} 个（${bracketSummary.errors.slice(0, 2).join('；')}）` : ''}`
+            : '';
+        const message = `同步完成，读取 ${rows.length} 场比赛${failures.length ? `（部分失败：${failures.join('；')}）` : ''}${bracketNote}`;
         db.prepare(`UPDATE sync_runs SET status = 'success', message = ?, finished_at = CURRENT_TIMESTAMP, tournaments_upserted = ?, teams_upserted = ?, matches_upserted = ?, matches_finished = ? WHERE id = ?`)
             .run(message, tournaments, teams, matchesUpserted, matchesFinished, run.lastInsertRowid);
         console.log(`[PandaScore] ${message}`);
-        return { status: failures.length ? 'partial' : 'success', message, tournaments_upserted: tournaments, teams_upserted: teams, matches_upserted: matchesUpserted, matches_finished: matchesFinished };
+        return {
+            status: failures.length ? 'partial' : 'success',
+            message,
+            tournaments_upserted: tournaments,
+            teams_upserted: teams,
+            matches_upserted: matchesUpserted,
+            matches_finished: matchesFinished,
+            brackets_synced: bracketSummary ? bracketSummary.synced : 0,
+            brackets_failed: bracketSummary ? bracketSummary.failed : 0
+        };
     } catch (error) {
         db.prepare(`UPDATE sync_runs SET status = 'failed', message = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`).run(error.message, run.lastInsertRowid);
         if (mode !== 'manual') await noteDegradedRound(error.message);
@@ -696,6 +891,10 @@ function syncStatus() {
         preview_days: getPreviewDays(),
         preview_interval_ms: previewIntervalMs(),
         preview_running: previewRunning,
+        bracket_sync_enabled: bracketSyncEnabled(),
+        bracket_interval_ms: bracketIntervalMs(),
+        bracket_history_interval_ms: bracketHistoryIntervalMs(),
+        bracket_last_synced_at: db.prepare('SELECT MAX(bracket_synced_at) last_at FROM tournament_stages WHERE external_source = ?').get(SOURCE)?.last_at || null,
         running,
         // 比赛同步与赛事预告分开记录，避免预告任务覆盖比赛同步状态
         last_run: db.prepare("SELECT * FROM sync_runs WHERE mode IS NULL OR mode != 'preview' ORDER BY started_at DESC LIMIT 1").get() || null,

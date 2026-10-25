@@ -7,10 +7,11 @@
     <link rel="icon" type="image/png" href="/images/prbetlogo_square.png">
     <link rel="apple-touch-icon" href="/images/prbetlogo_square.png">
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/leaderboard.css">
     <!-- 主题脚本置于 head 内同步执行：首帧渲染前写入 data-theme，避免暗色模式下页面闪白 -->
     <script src="/js/theme.js"></script>
 </head>
-<body>
+<body class="leaderboard-screen">
     <header class="hero compact">
         <nav>
             <a class="brand-logo" href="/" aria-label="PRBET 首页"><img src="/images/prbetlogo.png" alt="PRBET"></a>
@@ -25,37 +26,44 @@
         </nav>
         <section>
             <p class="eyebrow">Leaderboard</p>
-            <h1>竞猜积分排名</h1>
-            <p>查看全站积分榜，也可以按赛事筛选排名。</p>
+            <h1>竞猜排行榜</h1>
+            <p>按游戏或赛事查看积分排名，点击玩家回看预测。</p>
         </section>
     </header>
 
     <main class="page-shell leaderboard-page">
-        <div class="filters-bar panel">
+        <section class="board-filters" aria-label="排行榜筛选">
+            <label for="gameFilter">游戏
             <select id="gameFilter" onchange="setGame(this.value)">
                 <option value="cs2">CS2</option>
                 <option value="valorant">Valorant</option>
                 <option value="">全部游戏</option>
             </select>
+            </label>
+            <label for="tournamentFilter">统计范围
             <select id="tournamentFilter" onchange="resetLeaderboard()">
                 <option value="">总排行榜</option>
             </select>
-            <button class="ghost" onclick="exportLeaderboard()">导出 CSV</button>
-        </div>
-        <section class="panel">
-            <div class="section-head">
-                <h2 id="boardTitle">总排行榜</h2>
-                <span class="score-rule">胜负正确 +1，比分完全正确 BO1/BO3 +2，BO5 +3</span>
+            </label>
+            <button class="board-export" onclick="exportLeaderboard()">↓ 导出 CSV</button>
+        </section>
+        <section id="boardPodium" class="board-podium" aria-label="本榜前三名" hidden></section>
+        <section class="board-panel" aria-labelledby="boardTitle">
+            <div class="board-heading">
+                <div><p class="board-kicker">STANDINGS</p><h2 id="boardTitle">总排行榜</h2></div>
+                <span id="boardCount" class="board-count-label" role="status">加载中…</span>
             </div>
-            <ol id="leaderboardFull" class="leaderboard-full"></ol>
+            <div class="board-columns" aria-hidden="true"><span>排名</span><span>玩家</span><span>积分</span><span>已结算</span><span>得分率</span><span></span></div>
+            <ol id="leaderboardFull" class="board-list" aria-label="积分排名" aria-busy="true"></ol>
             <div id="pagination" class="pagination"></div>
         </section>
+        <details class="board-rules"><summary>计分与排名规则</summary><p>胜负预测正确得 1 分；比分完全正确时，BO1 得 1 分、BO3 得 2 分、BO5 得 3 分。弃权场次不计分。积分相同时，依次按得分率、已结算场次排序。</p><p>得分率 = 得分场次 ÷ 已结算场次。总榜统计所选游戏下的有效赛事，点击玩家可查看已结算预测。</p></details>
     </main>
 
     <div id="detailModal" class="modal leaderboard-detail-modal" hidden>
         <div class="modal-backdrop" onclick="closeDetailModal()"></div>
-        <section class="modal-panel leaderboard-detail-panel">
-            <button class="modal-close" onclick="closeDetailModal()">×</button>
+        <section class="modal-panel leaderboard-detail-panel" role="dialog" aria-modal="true" aria-label="玩家预测明细">
+            <button class="modal-close" aria-label="关闭预测明细" onclick="closeDetailModal()">×</button>
             <div id="detailModalBody"></div>
         </section>
     </div>

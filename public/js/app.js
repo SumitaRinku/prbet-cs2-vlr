@@ -215,8 +215,8 @@ function startCountdownTicker() {
 
 function scorePairs(format) {
     if (format === 'BO1') return [[1, 0], [0, 1]];
-    if (format === 'BO5') return [[3, 0], [3, 1], [3, 2], [0, 3], [1, 3], [2, 3]];
-    return [[2, 0], [2, 1], [0, 2], [1, 2]];
+    if (format === 'BO5') return [[3, 0], [3, 1], [3, 2], [2, 3], [1, 3], [0, 3]];
+    return [[2, 0], [2, 1], [1, 2], [0, 2]];
 }
 
 function scoreButtons(match, prediction) {
@@ -469,10 +469,18 @@ async function loadHomeBracket() {
     const requestId = ++state.bracketRequestId;
     if (!id) { renderHomeBracketShell('', ''); return; }
     try {
-        const data = await api(`/tournaments/${id}`);
+        // bracket 是增强数据：接口失败时仍用旧推断逻辑渲染。
+        const [detail, bracket] = await Promise.all([
+            api(`/tournaments/${id}`),
+            api(`/tournaments/${id}/brackets`).catch(() => null)
+        ]);
         if (requestId !== state.bracketRequestId || String(id) !== String(pickHomeBracketTournament())) return;
-        const sections = tournamentBracketSections(data.matches || []);
-        renderHomeBracketShell(data.tournament && data.tournament.name, sections);
+        const sections = tournamentBracketSections(
+            detail.matches || [],
+            (bracket && bracket.stages) || [],
+            { gameType: detail.tournament && detail.tournament.game_type }
+        );
+        renderHomeBracketShell(detail.tournament && detail.tournament.name, sections);
     } catch (error) {
         if (requestId !== state.bracketRequestId) return;
         // 赛程图为辅助信息，加载失败静默隐藏，不打断主流程。

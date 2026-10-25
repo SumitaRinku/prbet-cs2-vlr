@@ -2,7 +2,8 @@ const state = {
     game: localStorage.getItem('gameFilter') || 'cs2',
     tournaments: [],
     tournament: localStorage.getItem('leaderboardTournamentFilter') || '',
-    page: 1
+    page: 1,
+    request: 0
 };
 
 const gameFilterEl = document.querySelector('#gameFilter');
@@ -21,23 +22,33 @@ function setGame(game) {
     loadTournamentOptions().then(loadLeaderboard).catch(error => showLeaderboardError(error));
 }
 
-function rankIcon(rank) {
-    return rank <= 3 ? String(rank) : `#${rank}`;
-}
-
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
 
 function row(user) {
-    return `<li class="leaderboard-row clickable" onclick="showUserDetails(${user.id})">
-        <span class="rank ${user.rank <= 3 ? `top-${user.rank}` : ''}">${rankIcon(user.rank)}</span>
-        <strong>${escapeHtml(user.username)}</strong>
-        <span class="lb-score"><b>${user.total_score}</b> 分</span>
-        <span class="lb-count">${user.prediction_count} 场已结算</span>
-        <span class="lb-rate">${user.success_rate}% 得分率</span>
-        <small class="lb-hint">查看明细</small>
-    </li>`;
+    const rate = Math.min(100, Math.max(0, Number(user.success_rate) || 0));
+    return `<li><button type="button" class="board-row" onclick="showUserDetails(${Number(user.id)})" aria-label="第 ${user.rank} 名 ${escapeHtml(user.username)}，${escapeHtml(user.total_score)} 分，${escapeHtml(user.prediction_count)} 场已结算，得分率 ${rate}%，查看预测明细">
+        <span class="board-rank ${user.rank <= 3 ? `top-${user.rank}` : ''}">${String(user.rank).padStart(2, '0')}</span>
+        <span class="board-name" title="${escapeHtml(user.username)}">${escapeHtml(user.username)}</span>
+        <span class="board-points">${escapeHtml(user.total_score)}<small>分</small></span>
+        <span class="board-settled">${escapeHtml(user.prediction_count)} <small>场已结算</small></span>
+        <span class="board-rate"><span>${rate}% <small>得分率</small></span><span class="board-rate-track" aria-hidden="true"><i style="--rate:${rate}%"></i></span></span>
+        <span class="board-chevron" aria-hidden="true">›</span>
+    </button></li>`;
+}
+
+function renderPodium(data) {
+    const el = document.querySelector('#boardPodium');
+    if (!el) return;
+    const leaders = data.page === 1 ? data.leaderboard.slice(0, 3) : [];
+    el.hidden = !leaders.length;
+    el.innerHTML = leaders.map((user, index) => `<button type="button" class="board-podium-card ${['first', 'second', 'third'][index]}" onclick="showUserDetails(${Number(user.id)})" aria-label="第 ${user.rank} 名 ${escapeHtml(user.username)}，查看预测明细">
+        <span class="podium-place">0${user.rank} / ${['榜首', '第二名', '第三名'][index]}</span>
+        <strong class="podium-name" title="${escapeHtml(user.username)}">${escapeHtml(user.username)}</strong>
+        <b class="podium-score">${escapeHtml(user.total_score)}<small>分</small></b>
+        <span class="podium-meta">${escapeHtml(user.success_rate)}% 得分率</span>
+    </button>`).join('');
 }
 
 async function loadTournamentOptions() {
@@ -60,6 +71,8 @@ async function loadTournamentOptions() {
 
 async function loadLeaderboard() {
     if (!leaderboardFullEl || !tournamentFilterEl) return;
+    const request = ++state.request;
+    leaderboardFullEl.setAttribute('aria-busy', 'true');
     const tournamentId = tournamentFilterEl.value;
     state.tournament = tournamentId;
     localStorage.setItem('leaderboardTournamentFilter', tournamentId);
@@ -70,8 +83,12 @@ async function loadLeaderboard() {
     const data = tournamentId
         ? await sharedApi(`/leaderboard/tournament/${tournamentId}?${params}`)
         : await sharedApi(`/leaderboard?${params}`);
+    if (request !== state.request) return;
     if (boardTitleEl) boardTitleEl.textContent = tournamentId ? `${data.tournament.name} 排行榜` : `${gameName(state.game)} 总排行榜`;
     leaderboardFullEl.innerHTML = data.leaderboard.map(row).join('') || '<li class="empty-state"><h3>暂无排行</h3><p>用户完成预测并结算后会出现在这里。</p></li>';
+    leaderboardFullEl.setAttribute('aria-busy', 'false');
+    document.querySelector('#boardCount').textContent = `共 ${data.total || 0} 位玩家`;
+    renderPodium(data);
     renderPagination(data);
 }
 
@@ -111,13 +128,23 @@ function exportLeaderboard() {
 
 function showLeaderboardError(error) {
     if (leaderboardFullEl) leaderboardFullEl.innerHTML = `<li class="empty-state"><h3>加载失败</h3><p>${escapeHtml(error.message)}</p></li>`;
+    leaderboardFullEl?.setAttribute('aria-busy', 'false');
+    document.querySelector('#boardPodium').hidden = true;
+    document.querySelector('#boardCount').textContent = '暂时无法加载';
+    document.querySelector('#pagination').innerHTML = '';
 }
 
 function closeDetailModal() {
     if (detailModalEl) detailModalEl.hidden = true;
     if (detailModalBodyEl) detailModalBodyEl.innerHTML = '';
     document.body.classList.remove('modal-open');
+    detailReturnFocus?.focus();
 }
+
+let detailReturnFocus = null;
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && detailModalEl && !detailModalEl.hidden) closeDetailModal();
+});
 
 function userDetailStatus(prediction) {
     if (prediction.is_forfeit) return { cls: 'forfeit', label: '弃权', points: '不计分' };
@@ -193,6 +220,7 @@ function loadMoreUserDetails() {
 
 async function showUserDetails(userId) {
     if (!detailModalEl || !detailModalBodyEl) return;
+    detailReturnFocus = document.activeElement;
     const params = new URLSearchParams();
     if (state.game && !state.tournament) params.set('game_type', state.game);
     if (state.tournament) params.set('tournament_id', state.tournament);
@@ -215,6 +243,7 @@ async function showUserDetails(userId) {
         `;
         detailModalEl.hidden = false;
         document.body.classList.add('modal-open');
+        detailModalEl.querySelector('.modal-close').focus();
     } catch (error) {
         alert(error.message);
     }

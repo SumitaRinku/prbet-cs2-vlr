@@ -2,6 +2,7 @@
 // 由 tournaments.js（回看页）与 app.js（主页折叠面板）共用。
 // 依赖三个环境全局（各页各自提供）：escapeHtml、logoHtml、focusTournamentMatch。
 // 本文件不含任何页面状态 / DOM 副作用；顶层只有函数声明与字面量常量。
+const bracketGraphEngine = typeof BracketGraph !== 'undefined' ? BracketGraph : require('./bracket-graph');
 
 function normalizeStageName(name) {
     const raw = String(name || '').trim();
@@ -88,6 +89,43 @@ function isSwissRoundGroup(group) {
     return /^Round \d+$/i.test(group.label) || /瑞士轮\s*Round\s*\d+/i.test(group.label);
 }
 
+// 小组赛里具体分组（Group A/B/C/D）与「Group Stage」这种单一瑞士轮池要区别对待。
+function isNamedGroupStage(label) {
+    const text = String(label || '');
+    return /\bgroup\s+[a-z0-9]+\b/i.test(text) && !/group\s+stage/i.test(text);
+}
+
+function stageRoundCounts(matches) {
+    const counts = new Map();
+    for (const match of matches || []) {
+        const round = roundNumber(match);
+        if (round === null) continue;
+        counts.set(round, (counts.get(round) || 0) + 1);
+    }
+    return counts;
+}
+
+// 是否应渲染为瑞士轮：
+// - 明确标注 swiss / Group Stage / Opening Stage；
+// - 或轮次 >=3、队伍 >=8，且各轮场数不是全部相等（排除循环赛小组）。
+function looksLikeSwissStage(matches, label = '') {
+    const list = matches || [];
+    const text = String(label || list[0]?.stage_name || '');
+    const rounds = stageRoundCounts(list);
+    if (isNamedGroupStage(text)) return false;
+    if (/swiss/i.test(text) || /瑞士/i.test(text)) return rounds.size >= 2;
+    if (/group\s*stage|opening\s*stage|^groups?$/i.test(text.trim())) return rounds.size >= 2;
+    if (rounds.size < 3) return false;
+    const teams = new Set();
+    for (const match of list) {
+        if ((match.team1_name || '') !== 'TBD') teams.add(teamRecordKey(match, 1));
+        if ((match.team2_name || '') !== 'TBD') teams.add(teamRecordKey(match, 2));
+    }
+    if (teams.size < 8) return false;
+    const counts = [...rounds.values()];
+    return counts.some(count => count !== counts[0]);
+}
+
 function splitRepeatedSwissStages(groups) {
     const output = [];
     let current = null;
@@ -119,7 +157,7 @@ function splitRepeatedSwissStages(groups) {
 }
 
 function stageItemMetrics(item) {
-    return stageMetrics(stageMatches(item));
+    return stageMetrics(item.metricsMatches || stageMatches(item));
 }
 
 function stageOrderValue(stage) {
@@ -204,10 +242,11 @@ function swissFinalBuckets(roundGroups, skeleton = false) {
         team1.team = team1.team || teamSnapshot(match, 1);
         team2.team = team2.team || teamSnapshot(match, 2);
         if (match.status === 'finished') {
-            if (Number(match.team1_score) > Number(match.team2_score)) {
+            const winner = bracketGraphEngine.result(match).winner;
+            if (winner === 1) {
                 team1.wins += 1;
                 team2.losses += 1;
-            } else if (Number(match.team2_score) > Number(match.team1_score)) {
+            } else if (winner === 2) {
                 team2.wins += 1;
                 team1.losses += 1;
             }
@@ -324,24 +363,48 @@ function swissRoundBuckets(roundGroups, skeleton = false) {
             const team2Key = teamRecordKey(match, 2);
             const team1 = records.get(team1Key) || { wins: 0, losses: 0 };
             const team2 = records.get(team2Key) || { wins: 0, losses: 0 };
-            if (Number(match.team1_score) > Number(match.team2_score)) {
+            const winner = bracketGraphEngine.result(match).winner;
+            if (winner === 1) {
                 team1.wins += 1;
                 team2.losses += 1;
-            } else if (Number(match.team2_score) > Number(match.team1_score)) {
+            } else if (winner === 2) {
                 team2.wins += 1;
                 team1.losses += 1;
             }
             records.set(team1Key, team1);
             records.set(team2Key, team2);
         }
-        // 骨架模式：按标准结构补齐该轮应有的桶，并把每桶对阵数补足到目标（缺的用 TBD 占位）。
+        // 骨架模式：按标准结构补齐该轮应有的桶。
+        // 未开赛的 TBD 比赛在战绩计算里全部落在 0-0 桶，必须重新分配到骨架桶，
+        // 否则每一列都会多出一个 "0:0" 桶，并与占位符重复。
         if (skeleton && SWISS_16_SKELETON.rounds[round]) {
+            const specs = SWISS_16_SKELETON.rounds[round];
+            const expectedKeys = new Set(specs.map(spec => skeletonBucketShell(spec).key));
+            const unmatched = [];
+            for (const key of [...buckets.keys()]) {
+                if (expectedKeys.has(key)) continue;
+                unmatched.push(...buckets.get(key).matches);
+                buckets.delete(key);
+            }
             let seq = 0;
-            for (const spec of SWISS_16_SKELETON.rounds[round]) {
+            for (const spec of specs) {
                 const shell = skeletonBucketShell(spec);
                 const bucket = buckets.get(shell.key) || shell;
                 if (!buckets.has(shell.key)) buckets.set(shell.key, bucket);
+                while (bucket.matches.length < spec.count && unmatched.length) bucket.matches.push(unmatched.shift());
                 while (bucket.matches.length < spec.count) bucket.matches.push(placeholderMatch(round, `${shell.key}-${seq++}`));
+            }
+            // 数据异常导致实际对阵多于标准结构时，保留一个兜底桶而不是丢比赛。
+            if (unmatched.length) {
+                buckets.set('zz-unmatched', {
+                    key: 'zz-unmatched',
+                    label: '未归类',
+                    tone: 'neutral',
+                    outcome: '',
+                    wins: 0,
+                    losses: 0,
+                    matches: unmatched
+                });
             }
         }
         return {
@@ -363,9 +426,7 @@ function swissMatchLogo(match, side) {
     const name = side === 1 ? match.team1_name : match.team2_name;
     const logo = side === 1 ? match.team1_logo_url : match.team2_logo_url;
     const darkLogo = side === 1 ? match.team1_dark_logo_url : match.team2_dark_logo_url;
-    const won = match.status === 'finished' && (side === 1
-        ? Number(match.team1_score) > Number(match.team2_score)
-        : Number(match.team2_score) > Number(match.team1_score));
+    const won = bracketGraphEngine.result(match).winner === side;
     // TBD / 骨架占位：直接渲染「?」盾牌，不走 logo 代理。
     const logoNode = (name || '') === 'TBD' || match.__placeholder
         ? `<span class="sw2-logo tbd">${TBD_SHIELD}</span>`
@@ -387,7 +448,8 @@ function isLiveMatch(match) {
 // 已结束/弃权/TBD/占位不显示。纯函数：时间用本地时区格式化，不依赖页面全局。
 function bracketWhenChip(match) {
     if (match.__placeholder || isTbdMatch(match)) return '';
-    if (isLiveMatch(match)) return '<span class="bracket-chip live">LIVE</span>';
+    if (match.status === 'finished' && !bracketGraphEngine.result(match).winner) return '<span class="bracket-chip unknown">赛果待更新</span>';
+    if (isLiveMatch(match)) return '<span class="bracket-chip live" aria-label="比赛进行中">LIVE</span>';
     if (match.status !== 'upcoming' || !match.match_time) return '';
     const date = new Date(match.match_time);
     if (Number.isNaN(date.getTime())) return '';
@@ -406,23 +468,27 @@ const LIVE_STREAM_URLS = {
 // 赛程图卡片点击行为：LIVE 卡片直接新标签页打开对应游戏直播间；
 // 其余（未开赛/已结束/未知游戏）保持原有定位逻辑 focusTournamentMatch。
 function bracketCardAction(match) {
+    if (!match || match.__noLink || !match.id) return '';
     const url = isLiveMatch(match) ? LIVE_STREAM_URLS[String(match.game_type || '').toLowerCase()] || '' : '';
     return url ? `window.open('${url}','_blank','noopener')` : `focusTournamentMatch(${match.id})`;
 }
 
 function swissMatchNodeClean(match) {
-    // 只有前端合成的骨架槽位不可点击；真实 TBD 对局仍可定位到赛事详情。
-    const clickable = !match.__placeholder;
+    // 前端合成骨架槽位、以及没有本地比赛可定位的官方节点不可点击。
+    const clickable = !match.__placeholder && !match.__noLink;
     const live = isLiveMatch(match);
     const attrs = clickable
         ? `onclick="${bracketCardAction(match)}"`
         : 'disabled aria-disabled="true"';
     const classes = ['sw2-match', clickable ? '' : 'tbd', live ? 'live' : ''].filter(Boolean).join(' ');
-    const badge = live ? '<span class="bracket-chip live">LIVE</span>' : '';
-    const button = `<button type="button" class="${classes}" ${attrs} title="${escapeHtml(match.name || 'Swiss match')}">
+    const badge = live ? '<span class="bracket-chip live" aria-label="比赛进行中">LIVE</span>' : '';
+    const outcome = bracketGraphEngine.result(match);
+    const scored = outcome.finished && outcome.scores.every(score => score !== null);
+    const score = scored ? `${outcome.scores[0]}:${outcome.scores[1]}` : 'vs';
+    const button = `<button type="button" class="${classes}" ${attrs} aria-label="${escapeHtml(`${live ? '进行中 · ' : ''}${match.team1_name || 'TBD'} ${score} ${match.team2_name || 'TBD'}`)}" title="${escapeHtml(match.name || 'Swiss match')}">
         ${badge}
         ${swissMatchLogo(match, 1)}
-        <span class="sw2-vs">vs</span>
+        <span class="sw2-vs${scored ? ' scored' : ''}">${score}</span>
         ${swissMatchLogo(match, 2)}
     </button>`;
     if (badge) return button;
@@ -433,8 +499,8 @@ function swissMatchNodeClean(match) {
 
 function swissResultTeamClean(entry) {
     // 空槽位（尚未产生的晋级/淘汰队）用「?」盾牌占位。
-    if (!entry || entry.__placeholder) return `<span class="sw2-result-team tbd">${TBD_SHIELD}</span>`;
-    return `<span class="sw2-result-team" title="${escapeHtml(entry.team.name)}">${logoHtml(entry.team.logo, entry.team.darkLogo)}</span>`;
+    if (!entry || entry.__placeholder) return `<span class="sw2-result-team tbd" role="img" aria-label="待定">${TBD_SHIELD}<b>待定</b></span>`;
+    return `<span class="sw2-result-team" title="${escapeHtml(entry.team.name)}" role="img" aria-label="${escapeHtml(entry.team.name)}">${logoHtml(entry.team.logo, entry.team.darkLogo)}<b>${escapeHtml(entry.team.shortName || entry.team.name)}</b></span>`;
 }
 
 function swissResultBucketsForLabels(finalBuckets, labels) {
@@ -444,7 +510,7 @@ function swissResultBucketsForLabels(finalBuckets, labels) {
 
 function swissResultBucketClean(bucket) {
     return `<div class="sw2-result-bucket ${escapeHtml(bucket.tone)}">
-        <div class="sw2-label">${escapeHtml(swissGraphLabel(bucket.label))}</div>
+        <div class="sw2-label">${escapeHtml(swissGraphLabel(bucket.label))} ${bucket.tone === 'advance' ? '晋级' : '淘汰'}</div>
         <div class="sw2-result-teams">${bucket.teams.map(swissResultTeamClean).join('')}</div>
     </div>`;
 }
@@ -516,7 +582,9 @@ function playoffRoundLabel(match) {
         if (size === 8) return { key: '70-quarterfinals', label: '四分之一决赛', order: 70 };
         if (size === 4) return { key: '80-semifinals', label: '半决赛', order: 80 };
         if (size === 2) return { key: '90-final', label: '决赛', order: 90 };
-        return { key: `${String(128 - size).padStart(3, '0')}-round-of-${size}`, label: `Round of ${size}`, order: 128 - size };
+        // Round of N 必须按「N 越大越早」排序，不能与 QF/SF/Final 的 70/80/90 冲突。
+        const order = { 128: 10, 64: 20, 32: 30, 16: 40 }[size] || 50;
+        return { key: `${String(order).padStart(3, '0')}-round-of-${size}`, label: `Round of ${size}`, order };
     }
     if (source.includes('quarter') || source.includes('四分之一')) return { key: '70-quarterfinals', label: '四分之一决赛', order: 70 };
     if (source.includes('semi') || source.includes('半决赛')) return { key: '80-semifinals', label: '半决赛', order: 80 };
@@ -580,8 +648,8 @@ function playoffLayout(groups, narrowFlags = null) {
     const compact = isCompactBracketViewport();
     const cardW = compact ? 150 : 160;
     const narrowW = compact ? 92 : 116;
-    const cardH = compact ? 58 : 68;
-    const xGap = compact ? 34 : 64;
+    const cardH = compact ? 56 : 60;
+    const xGap = compact ? 28 : 40;
     // 行间距需容纳未开赛卡片上方的开赛时间角标（约 11px 高），过窄会与上一行卡片贴住
     const yGap = compact ? 18 : 20;
     const startX = compact ? 8 : 20;
@@ -628,35 +696,37 @@ function playoffLayout(groups, narrowFlags = null) {
     };
 }
 
-function playoffTeamRowClean(match, side) {
-    const score = side === 1 ? match.team1_score : match.team2_score;
-    const finished = match.status === 'finished';
-    const won = finished && ((side === 1 && Number(match.team1_score) > Number(match.team2_score)) || (side === 2 && Number(match.team2_score) > Number(match.team1_score)));
+function playoffTeamRowClean(match, side, dropsToLower = false) {
+    const outcome = bracketGraphEngine.result(match);
+    const score = outcome.scores[side - 1];
+    const finished = outcome.finished;
+    const won = outcome.winner === side;
     const logo = side === 1 ? match.team1_logo_url : match.team2_logo_url;
     const darkLogo = side === 1 ? match.team1_dark_logo_url : match.team2_dark_logo_url;
     const name = side === 1 ? match.team1_name : match.team2_name;
     const isTbd = (name || '') === 'TBD' || match.__placeholder;
     // 只有已结束的比赛才分胜/负（绿/红条）；未结束（含 TBD）一律中性 pending，不显示红条。
-    const tone = won ? 'winner' : finished ? 'loser' : 'pending';
+    const tone = won ? 'winner' : outcome.winner ? 'loser' : 'pending';
     return `<div class="pb2-team ${tone}">
         <span class="pb2-bar"></span>
         ${isTbd ? TBD_SHIELD : logoHtml(logo, darkLogo)}
-        <b>${escapeHtml(teamShortName(match, side))}</b>
-        <strong>${finished ? escapeHtml(score ?? 0) : '-'}</strong>
+        <b title="${escapeHtml(name || 'TBD')}">${escapeHtml(teamShortName(match, side))}</b>
+        <strong>${dropsToLower && tone === 'loser' ? '<i class="bracket-drop" title="落入败者组" aria-label="落入败者组">↓</i>' : ''}${finished ? escapeHtml(score ?? '—') : '—'}</strong>
     </div>`;
 }
 
-function playoffCardClean(match) {
+function playoffCardClean(match, dropsToLower = false) {
     const title = match.name || '淘汰赛';
     const tbd = isTbdMatch(match);
     const live = !match.__placeholder && !tbd && isLiveMatch(match);
-    const action = match.__placeholder ? '' : bracketCardAction(match);
-    const interaction = match.__placeholder
-        ? ''
-        : `role="button" tabindex="0" onclick="${action}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${action}}"`;
+    const clickable = !match.__placeholder && !match.__noLink && !!match.id;
+    const action = clickable ? bracketCardAction(match) : '';
+    const interaction = action
+        ? `role="button" tabindex="0" onclick="${action}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${action}}"`
+        : '';
     return `<div class="pb2-card ${match.status || ''} ${tbd ? 'tbd' : ''} ${live ? 'live' : ''}" ${interaction} title="${escapeHtml(title)}">
-        ${playoffTeamRowClean(match, 1)}
-        ${playoffTeamRowClean(match, 2)}
+        ${playoffTeamRowClean(match, 1, dropsToLower)}
+        ${playoffTeamRowClean(match, 2, dropsToLower)}
     </div>`;
 }
 
@@ -665,10 +735,8 @@ function playoffDiagram(matches) {
     // 用问号盾牌 + TBD 占位，直观展示完整赛制结构。
     const groups = playoffGroupsFromMatches(matches || []);
     if (!groups.length) return '';
-    // 移动端窄列：整轮未定/已结束的列收窄；全部可压缩时保留最右列全宽（最终结果）。
-    const narrowFlags = isCompactBracketViewport()
-        ? computeNarrowFlags(groups.map(group => group.matches))
-        : groups.map(() => false);
+    // 保留每轮的队名和比分，通过外层视口横向浏览。
+    const narrowFlags = groups.map(() => false);
     const layout = playoffLayout(groups, narrowFlags);
     return `<div class="playoff-bracket-clean" aria-label="淘汰赛赛程图">
         <div class="pb2-layout" style="--pb2-w:${layout.w}px;--pb2-h:${layout.h}px;--pb2-card-w:${layout.cardW}px;--pb2-card-h:${layout.cardH}px">
@@ -682,13 +750,14 @@ function playoffDiagram(matches) {
 }
 
 function bracketTeamState(match, side, flow = null) {
-    const finished = match.status === 'finished';
-    const won = finished && ((side === 1 && Number(match.team1_score) > Number(match.team2_score)) || (side === 2 && Number(match.team2_score) > Number(match.team1_score)));
+    const outcome = bracketGraphEngine.result(match);
+    const finished = outcome.finished;
+    const won = outcome.winner === side;
     return {
         finished,
         won,
-        tone: won ? 'winner' : finished ? 'loser' : 'pending',
-        marker: flow === 'drop' && finished && !won ? 'drop' : flow === 'advance' && finished && won ? 'advance' : null
+        tone: won ? 'winner' : outcome.winner ? 'loser' : 'pending',
+        marker: flow === 'drop' && outcome.winner && !won ? 'drop' : flow === 'advance' && won ? 'advance' : null
     };
 }
 
@@ -707,7 +776,7 @@ function bracketTeamRowClean(match, side, prefix = 'de', flow = null) {
         <span class="${prefix}-bar"></span>
         ${logoHtml(logo, darkLogo)}
         <b>${escapeHtml(teamShortName(match, side))}</b>
-        <strong>${marker}${state.finished ? escapeHtml(score ?? 0) : '-'}</strong>
+        <strong>${marker}${state.finished ? escapeHtml(score ?? '—') : '—'}</strong>
     </div>`;
 }
 
@@ -715,10 +784,11 @@ function compactBracketCard(match, prefix = 'de', flow = null) {
     const title = match.name || 'Bracket match';
     const tbd = isTbdMatch(match);
     const live = !match.__placeholder && !tbd && isLiveMatch(match);
-    const action = match.__placeholder ? '' : bracketCardAction(match);
-    const interaction = match.__placeholder
-        ? ''
-        : `role="button" tabindex="0" onclick="${action}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${action}}"`;
+    const clickable = !match.__placeholder && !match.__noLink && !!match.id;
+    const action = clickable ? bracketCardAction(match) : '';
+    const interaction = action
+        ? `role="button" tabindex="0" onclick="${action}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${action}}"`
+        : '';
     return `<div class="${prefix}-card ${match.status || ''} ${tbd ? 'tbd' : ''} ${live ? 'live' : ''}" ${interaction} title="${escapeHtml(title)}">
         ${bracketTeamRowClean(match, 1, prefix, flow)}
         ${bracketTeamRowClean(match, 2, prefix, flow)}
@@ -1055,9 +1125,9 @@ function normalizeTournamentStageMatches(stages) {
 function structureExplicitStages(stages) {
     return (stages || []).map(stage => {
         const matches = stageMatches(stage);
-        const source = `${stage.label || ''} ${matches.map(match => `${match.stage_name || ''} ${match.name || ''}`).join(' ')}`.toLowerCase();
         const rounds = roundGroupsFromMatches(matches);
-        if (source.includes('swiss') && rounds.length >= 2) {
+        // 不再只认 "swiss" 字样：PandaScore 常把 16 队瑞士轮直接命名为 "Group Stage"。
+        if (rounds.length >= 2 && looksLikeSwissStage(matches, stage.label)) {
             return { ...stage, type: 'swiss-stage', groups: rounds, matches: undefined };
         }
         return stage;
@@ -1094,22 +1164,49 @@ function buildBracketModel(matches) {
 function buildTournamentStages(matches) {
     return buildBracketModel(matches).stages;
 }
-function stageDiagram(group, roundGroups = null) {
+function renderStageDiagram(group, roundGroups = null) {
+    // 官方 edges 驱动的阶段即使本地还没有比赛，也要按节点骨架渲染。
+    if (group.type === 'official-single') return officialSingleDiagram(group);
+    if (group.type === 'official-double') return officialDoubleDiagram(group);
+    if (group.type === 'gsl-group') return gslGroupDiagram(group.officialMatches || group.matches || [], group.edges || []);
     const matches = stageMatches(group);
     if (!matches.length) return '';
     const label = (group.label || '').toLowerCase();
     const matchNames = matches.map(match => match.name || '').join(' ').toLowerCase();
     if (group.type === 'double-elim-bracket') return doubleElimDiagram(matches);
-    if (label.includes('group') || label.includes('小组')) return '';
+    if (group.type === 'group-stage') return groupDiagram(matches);
     if (matchNames.includes('upper bracket') || matchNames.includes('lower bracket')) return '';
     if (group.groups) return swissDiagram(group.groups);
+    if (isGslGroupStage(matches)) return gslGroupDiagram(matches, []);
+    if (isRoundRobinGroupStage(group, matches)) return groupDiagram(matches);
     if (isPlayoffStage(group)) return playoffDiagram(matches);
     // 季军赛：单独一场（或数场）决胜局，作为独立小卡片展示，回答「是否有季军赛」。
     if (label.includes('3rd') || label.includes('third') || label.includes('季军') || matchNames.includes('3rd place') || matchNames.includes('third place')) {
         return thirdPlaceDiagram(matches);
     }
-    if (roundGroups && roundGroups.length >= 1) return swissDiagram(roundGroups);
+    const rounds = roundGroups && roundGroups.length ? roundGroups : roundGroupsFromMatches(matches);
+    if (rounds.length >= 1 && looksLikeSwissStage(matches, group.label)) return swissDiagram(rounds);
     return '';
+}
+
+function stageDiagram(group, roundGroups = null) {
+    const diagram = renderStageDiagram(group, roundGroups);
+    if (!diagram) return '';
+    const diagnostics = group.graphDiagnostics || {};
+    const incomplete = group.unlinkedCount || diagnostics.danglingEdges || diagnostics.cyclicNodes || diagnostics.invalidEdges;
+    const unpublished = /^official-/.test(group.type || '') && group.officialMatches?.length > 1 && !group.edges?.length;
+    const note = incomplete ? '部分晋级关系待确认' : group.bracket_error ? '暂用上次更新的赛程' : unpublished ? '晋级关系待公布' : '';
+    const table = diagram.includes('class="group-standings"');
+    const swiss = group.type === 'swiss-stage' || !!group.groups;
+    const legend = table ? '<span>小组战绩</span>' : swiss ? '<span>按赛前战绩分组</span>'
+        : '<span><i class="bracket-key-line"></i>晋级</span><span><i class="bracket-drop" aria-hidden="true">↓</i>落入败者组</span>';
+    return `<div class="bracket-view${swiss ? ' bracket-swiss' : ''}" data-bracket-view>
+        <div class="bracket-toolbar">
+            <div class="bracket-key">${legend}${diagram.includes('bracket-chip live') ? '<span class="bracket-live-key"><i aria-hidden="true"></i>LIVE 进行中</span>' : ''}${note ? `<span class="bracket-note">${note}</span>` : ''}<span class="bracket-overflow-hint">左右滑动查看更多</span></div>
+            ${table ? '' : '<div class="bracket-controls"><button type="button" data-bracket-nav="-1" aria-label="查看上一轮">←</button><output class="bracket-round-index" aria-live="polite" aria-atomic="true"></output><button type="button" data-bracket-nav="1" aria-label="查看下一轮">→</button><button type="button" data-bracket-nav="current">定位当前</button></div>'}
+        </div>
+        <div class="bracket-scroll-shell"><div class="bracket-viewport" tabindex="0" role="region" aria-label="${escapeHtml(group.label || '赛事')}赛程图，可横向滚动">${diagram}</div></div>
+    </div>`;
 }
 
 // 季军赛骨架：复用 playoff 卡片样式，横排展示决胜局（未定则 TBD 占位）。
@@ -1122,6 +1219,494 @@ function thirdPlaceDiagram(matches) {
             ${matches.map((match, index) => `<div class="pb2-slot" style="left:${layout.xs[0]}px;top:${layout.ys[0][index]}px;width:${layout.cardW}px;height:${layout.cardH}px">${playoffCardClean(match)}</div>`).join('')}
         </div>
     </div>`;
+}
+
+function isRoundRobinGroupStage(group, matches) {
+    const label = group.label || '';
+    if (looksLikeSwissStage(matches, label)) return false;
+    return isNamedGroupStage(label) || /group/i.test(label);
+}
+
+// 小组循环赛的「图」：用积分榜代替空的 bracket。
+function groupStandings(matches) {
+    const records = new Map();
+    const entry = (match, side) => {
+        const key = teamRecordKey(match, side);
+        if (!records.has(key)) {
+            records.set(key, {
+                key,
+                team: teamSnapshot(match, side),
+                played: 0,
+                wins: 0,
+                losses: 0,
+                mapWins: 0,
+                mapLosses: 0
+            });
+        }
+        return records.get(key);
+    };
+    for (const match of matches || []) {
+        if (match.__placeholder || isTbdMatch(match)) continue;
+        const left = entry(match, 1);
+        const right = entry(match, 2);
+        if (match.status !== 'finished') continue;
+        left.played += 1;
+        right.played += 1;
+        const score1 = Number(match.team1_score);
+        const score2 = Number(match.team2_score);
+        if (Number.isFinite(score1)) {
+            left.mapWins += score1;
+            right.mapLosses += score1;
+        }
+        if (Number.isFinite(score2)) {
+            right.mapWins += score2;
+            left.mapLosses += score2;
+        }
+        const winningSide = bracketGraphEngine.result(match).winner;
+        const winner = winningSide === 1 ? left : winningSide === 2 ? right : null;
+        if (winner === left) {
+            left.wins += 1;
+            right.losses += 1;
+        } else if (winner === right) {
+            right.wins += 1;
+            left.losses += 1;
+        }
+    }
+    return [...records.values()].sort((a, b) =>
+        (b.wins - a.wins)
+        || ((b.mapWins - b.mapLosses) - (a.mapWins - a.mapLosses))
+        || a.team.shortName.localeCompare(b.team.shortName)
+    );
+}
+
+function groupDiagram(matches) {
+    const rows = groupStandings(matches);
+    if (!rows.length) return '';
+    const body = rows.map((row, index) => `<tr>
+        <td class="group-rank">${index + 1}</td>
+        <td class="group-team">${logoHtml(row.team.logo, row.team.darkLogo)}<b>${escapeHtml(row.team.shortName)}</b></td>
+        <td>${row.played}</td>
+        <td>${row.wins}-${row.losses}</td>
+        <td>${row.mapWins}-${row.mapLosses}</td>
+    </tr>`).join('');
+    return `<div class="group-standings" aria-label="小组积分榜">
+        <div class="group-standings-title">Group standings</div>
+        <table>
+            <thead><tr><th>#</th><th>队伍</th><th>场次</th><th>胜-负</th><th>地图分</th></tr></thead>
+            <tbody>${body}</tbody>
+        </table>
+    </div>`;
+}
+
+// GSL 组：Opening → Winners/Elimination → Decider。没有官方 edges 时仍按名称渲染三列，
+// 避免误判成循环赛积分榜（例如 Thunderpick World Championship 的 Group A/B）。
+function isGslGroupStage(matches) {
+    return (matches || []).some(match =>
+        /\b(winners?'?\s*match|elimination\s*match|decider\s*match)\b/i.test(match.name || ''));
+}
+
+function gslRoundDepth(match) {
+    const name = String(match.name || '').toLowerCase();
+    if (/decider/.test(name)) return 2;
+    if (/winners?|elimination/.test(name)) return 1;
+    return 0;
+}
+
+// 标准 4 队 GSL 布局，对齐 HLTV 样式：
+// 上排 Opening round / Winners' match，下排 Elimination match / Decider match。
+function gslLayout(nodes, edges, metrics) {
+    const opening = nodes.filter(node => node.__round_depth === 0).sort(officialMatchCompare);
+    const middle = nodes.filter(node => node.__round_depth === 1).sort((a, b) => {
+        const rank = match => (/winners?/i.test(match.name || '') ? 0 : 1);
+        return rank(a) - rank(b) || officialMatchCompare(a, b);
+    });
+    const decider = nodes.filter(node => node.__round_depth === 2).sort(officialMatchCompare);
+    if (opening.length !== 2 || middle.length !== 2 || decider.length !== 1) return null;
+    const xs = [0, 1, 2].map(index => metrics.startX + index * (metrics.cardW + metrics.xGap));
+    const topY = metrics.startY;
+    // 两排之间留出 "Elimination match / Decider match" 子标题和未开赛时间角标的空间。
+    const bottomY = metrics.startY + metrics.cardH + metrics.yGap + (metrics.compact ? 26 : 32);
+    const positions = new Map();
+    opening.forEach((match, index) => positions.set(match.__official_id, { x: xs[0], y: index === 0 ? topY : bottomY }));
+    middle.forEach((match, index) => positions.set(match.__official_id, { x: xs[1], y: index === 0 ? topY : bottomY }));
+    positions.set(decider[0].__official_id, { x: xs[2], y: bottomY });
+    const byId = new Map(nodes.map(node => [node.__official_id, node]));
+    const lines = [];
+    for (const edge of edges) {
+        if (!byId.has(edge.match_external_id) || !byId.has(edge.source_external_match_id)) continue;
+        const source = positions.get(edge.source_external_match_id);
+        const target = positions.get(edge.match_external_id);
+        if (!source || !target) continue;
+        const fromRight = source.x + metrics.cardW;
+        const toLeft = target.x;
+        if (fromRight >= toLeft) continue;
+        const joinX = Math.round((fromRight + toLeft) / 2);
+        lines.push({ ...edge, d: `M${fromRight},${source.y + metrics.cardH / 2} H${joinX} V${target.y + metrics.cardH / 2} H${toLeft}` });
+    }
+    return {
+        xs,
+        topY,
+        bottomY,
+        width: xs[2] + metrics.cardW + metrics.startX,
+        height: Math.max(metrics.compact ? 220 : 260, bottomY + metrics.cardH + (metrics.compact ? 26 : 40)),
+        columns: [
+            { x: xs[0], matches: opening },
+            { x: xs[1], matches: middle },
+            { x: xs[2], matches: decider }
+        ],
+        positions,
+        lines
+    };
+}
+
+function gslGroupDiagram(matches, edges = []) {
+    if (!matches || !matches.length) return '';
+    const nodes = matches.map(match => ({
+        ...match,
+        __official_id: match.__official_id || match.external_id || `local:${match.id}`,
+        __round_depth: gslRoundDepth(match),
+        __round_key: 1000 + gslRoundDepth(match)
+    }));
+    const model = bracketGraphEngine.graph(nodes, edges || [], gslRoundDepth);
+    const laneEdges = model.edges;
+    const drops = new Set(laneEdges.filter(edge => edge.source_type === 'loser').map(edge => edge.source_external_match_id));
+    const metrics = officialCardMetrics();
+    const layout = gslLayout(nodes, laneEdges, metrics);
+    if (!layout) {
+        return `<div class="official-bracket-clean gsl-bracket" aria-label="GSL 小组赛程图">
+            ${officialLaneHtml('', nodes, bracketGraphEngine.layout(model, metrics, undefined, officialMatchCompare), metrics)}
+        </div>`;
+    }
+    const subTitleTop = layout.bottomY - (metrics.compact ? 30 : 36);
+    const titles = [
+        { x: layout.xs[0], y: 0, text: 'Opening round' },
+        { x: layout.xs[1], y: 0, text: "Winners' match" },
+        { x: layout.xs[1], y: subTitleTop, text: 'Elimination match' },
+        { x: layout.xs[2], y: subTitleTop, text: 'Decider match' }
+    ].map(item => `<div class="pb2-title" data-bracket-column="${item.x}" style="left:${item.x}px;top:${item.y}px;width:${metrics.cardW}px">${escapeHtml(item.text)}</div>`).join('');
+    const cards = nodes.map(match => {
+        const position = layout.positions.get(match.__official_id);
+        if (!position) return '';
+        return `<div class="pb2-slot bracket-match" data-bracket-match="${escapeHtml(match.__official_id)}" style="left:${position.x}px;top:${position.y}px;width:${metrics.cardW}px;height:${metrics.cardH}px">${bracketWhenChip(match)}${playoffCardClean(match, drops.has(match.__official_id))}</div>`;
+    }).join('');
+    return `<div class="official-bracket-clean gsl-bracket" aria-label="GSL 小组赛程图">
+        <section class="official-lane">
+            <div class="official-canvas" style="--pb2-w:${layout.width}px;--pb2-h:${layout.height}px;width:${layout.width}px;height:${layout.height}px">
+                <svg class="pb2-lines" viewBox="0 0 ${layout.width} ${layout.height}" aria-hidden="true">${bracketLinesHtml(layout.lines)}</svg>
+                ${titles}
+                ${cards}
+            </div>
+        </section>
+    </div>`;
+}
+
+// ---------- 官方 bracket（nodes + edges）----------
+
+function officialStatus(status) {
+    if (status === 'not_started') return 'upcoming';
+    if (status === 'running') return 'ongoing';
+    if (status === 'finished') return 'finished';
+    if (status === 'canceled' || status === 'cancelled') return 'cancelled';
+    if (status === 'postponed') return 'postponed';
+    return 'upcoming';
+}
+
+function officialNodeToMatch(node, local, stageExternalId, gameType) {
+    const teamName = (side) => {
+        const localName = local && local[`team${side}_name`];
+        if (localName && localName !== 'TBD') return localName;
+        return node[`team${side}_name`] || 'TBD';
+    };
+    const teamValue = (field, side) => {
+        const localValue = local && local[`team${side}_${field}`];
+        if (localValue !== undefined && localValue !== null) return localValue;
+        return node[`team${side}_${field}`] ?? null;
+    };
+    return {
+        id: local ? local.id : null,
+        name: node.name || (local && local.name) || null,
+        status: local ? local.status : officialStatus(node.status),
+        match_time: (local && local.match_time) || node.scheduled_at || null,
+        format: (local && local.format) || null,
+        is_forfeit: (local && local.is_forfeit) || 0,
+        game_type: (local && local.game_type) || gameType || 'cs2',
+        team1_id: local ? local.team1_id : null,
+        team2_id: local ? local.team2_id : null,
+        team1_name: teamName(1),
+        team1_short_name: teamValue('short_name', 1) || teamName(1),
+        team1_logo_url: teamValue('logo_url', 1),
+        team1_dark_logo_url: teamValue('dark_logo_url', 1),
+        team2_name: teamName(2),
+        team2_short_name: teamValue('short_name', 2) || teamName(2),
+        team2_logo_url: teamValue('logo_url', 2),
+        team2_dark_logo_url: teamValue('dark_logo_url', 2),
+        team1_score: local ? local.team1_score : null,
+        team2_score: local ? local.team2_score : null,
+        winner_team_id: local ? local.winner_team_id : null,
+        prediction_count: (local && local.prediction_count) || 0,
+        correct_prediction_count: (local && local.correct_prediction_count) || 0,
+        stage_external_id: stageExternalId,
+        __official_id: node.external_match_id,
+        __noLink: !local
+    };
+}
+
+function explicitOfficialRoundKey(match) {
+    const kind = bracketKind(match);
+    if (kind && Number.isFinite(kind.round)) return kind.round;
+    const round = String(match.name || '').match(/\bround\s+(\d+)\b/i);
+    if (round) return Number(round[1]);
+    const label = playoffRoundLabel(match);
+    return label && Number.isFinite(label.order) ? label.order : null;
+}
+
+function officialRoundKey(match) {
+    return match.__round_key !== undefined ? match.__round_key : explicitOfficialRoundKey(match);
+}
+
+// GSL 组（Winners / Elimination / Decider）没有轮次名，需要靠 edges 推导列深。
+function assignOfficialRoundKeys(matches, edges) {
+    const model = bracketGraphEngine.graph(matches, edges || [], explicitOfficialRoundKey);
+    for (const match of matches) {
+        match.__round_depth = model.depths.get(match.__official_id) || 0;
+        match.__round_key = model.ranks.get(match.__official_id) || 0;
+    }
+    return model;
+}
+
+function officialColumnTitle(matches) {
+    const labels = [];
+    for (const match of matches || []) {
+        const kind = bracketKind(match);
+        if (kind) labels.push(playoffDisplayLabel(kind.label));
+    }
+    const unique = [...new Set(labels)];
+    if (unique.length === 1) return unique[0];
+    if (unique.length > 1) return 'Finals';
+    const round = String((matches && matches[0] && matches[0].name) || '').match(/\bround\s+(\d+)\b/i);
+    if (round) return `Round ${round[1]}`;
+    const depth = matches && matches[0] && Number.isFinite(matches[0].__round_depth) ? matches[0].__round_depth : null;
+    return depth !== null ? `Round ${depth + 1}` : 'Round';
+}
+
+function officialCardMetrics() {
+    const compact = isCompactBracketViewport();
+    return {
+        compact,
+        cardW: compact ? 156 : 176,
+        cardH: compact ? 56 : 60,
+        xGap: compact ? 28 : 36,
+        yGap: compact ? 22 : 24,
+        startX: 16,
+        startY: 48
+    };
+}
+
+// 赛程图列顺序：优先用轮次语义（Round N / Round of N / QF / SF / Final），
+// 这样 Round of 32 → Round of 16 → QF 不会因旧 order 冲突而错位。
+function officialMatchCompare(a, b) {
+    const position = bracketMatchPosition(a) - bracketMatchPosition(b);
+    if (position !== 0) return position;
+    const time = new Date(a.match_time || 0) - new Date(b.match_time || 0);
+    if (time !== 0) return time;
+    return String(a.__official_id || a.id || '').localeCompare(String(b.__official_id || b.id || ''));
+}
+
+function bracketLinesHtml(lines) {
+    return lines.filter(line => typeof line === 'string' || line.source_type !== 'loser').map(line => typeof line === 'string' ? `<path d="${line}"></path>`
+        : `<path d="${line.d}" class="bracket-edge ${line.source_type}" data-from="${escapeHtml(line.source_external_match_id)}" data-to="${escapeHtml(line.match_external_id)}"></path>`).join('');
+}
+
+function officialLaneHtml(label, matches, layout, metrics, flowMap = null, titleFor = null, cardLabelFor = null) {
+    const drops = new Set(layout.lines.filter(line => line.source_type === 'loser').map(line => line.source_external_match_id));
+    if (!matches.length) return '';
+    const titles = layout.columns.map(column => {
+        const text = titleFor ? titleFor(column) : officialColumnTitle(column.matches);
+        return `<div class="pb2-title" data-bracket-column="${column.x}" style="left:${column.x}px;top:0;width:${metrics.cardW}px">${escapeHtml(text)}</div>`;
+    }).join('');
+    const cards = matches.map(match => {
+        const position = layout.positions.get(match.__official_id);
+        if (!position) return '';
+        const flow = flowMap ? flowMap(match) : null;
+        const card = flow ? compactBracketCard(match, 'pb2', flow) : playoffCardClean(match, drops.has(match.__official_id));
+        const cardLabel = cardLabelFor ? cardLabelFor(match) : '';
+        return `<div class="pb2-slot bracket-match${match.__unlinked ? ' bracket-unlinked' : ''}" data-bracket-match="${escapeHtml(match.__official_id)}" style="left:${position.x}px;top:${position.y}px;width:${metrics.cardW}px;height:${metrics.cardH}px">
+            ${cardLabel ? `<span class="official-card-label">${escapeHtml(cardLabel)}</span>` : ''}
+            ${bracketWhenChip(match)}${card}
+        </div>`;
+    }).join('');
+    return `<section class="official-lane">
+        ${label ? `<div class="official-lane-label">${escapeHtml(label)}</div>` : ''}
+        <div class="official-canvas" style="--pb2-w:${layout.width}px;--pb2-h:${layout.height}px;width:${layout.width}px;height:${layout.height}px">
+            <svg class="pb2-lines" viewBox="0 0 ${layout.width} ${layout.height}" aria-hidden="true">${bracketLinesHtml(layout.lines)}</svg>
+            ${titles}
+            ${cards}
+        </div>
+    </section>`;
+}
+
+function officialExtrasSection(label, matches, metrics) {
+    if (!matches.length) return '';
+    return `<section class="official-finals">
+        <div class="official-lane-label">${escapeHtml(label)}</div>
+        <div class="official-finals-cards">
+            ${matches.map(match => `<div class="official-final-card">
+                <div class="official-final-slot" style="width:${metrics.cardW}px;height:${metrics.cardH}px">${bracketWhenChip(match)}${playoffCardClean(match)}</div>
+            </div>`).join('')}
+        </div>
+    </section>`;
+}
+
+function officialSingleDiagram(stage) {
+    const matches = stage.officialMatches || [];
+    if (!matches.length) return '';
+    const metrics = officialCardMetrics();
+    // 季军赛不属于主淘汰树，单独放在下方，避免和 Grand Final 共用 "Finals" 列。
+    const main = matches.filter(match => {
+        const kind = bracketKind(match);
+        return !kind || kind.side !== 'medal';
+    });
+    const medals = matches.filter(match => {
+        const kind = bracketKind(match);
+        return kind && kind.side === 'medal';
+    });
+    const mainIds = new Set(main.map(match => match.__official_id));
+    const fullModel = bracketGraphEngine.graph(matches, stage.edges || [], explicitOfficialRoundKey);
+    stage.graphDiagnostics = fullModel.diagnostics;
+    const mainEdges = fullModel.edges.filter(edge =>
+        mainIds.has(edge.match_external_id) && mainIds.has(edge.source_external_match_id));
+    let lane = '';
+    if (main.length) {
+        const model = assignOfficialRoundKeys(main, mainEdges);
+        const layout = bracketGraphEngine.layout(model, metrics, undefined, officialMatchCompare);
+        lane = officialLaneHtml('', main, layout, metrics);
+    }
+    const extras = officialExtrasSection('3rd Place', medals, metrics);
+    return `<div class="official-bracket-clean" aria-label="赛程图">
+        ${lane}
+        ${extras}
+    </div>`;
+}
+
+function officialDoubleDiagram(stage) {
+    const matches = stage.officialMatches || [];
+    if (!matches.length) return '';
+    const medals = matches.filter(match => bracketKind(match)?.side === 'medal');
+    const main = matches.filter(match => bracketKind(match)?.side !== 'medal');
+    const fullModel = bracketGraphEngine.graph(matches, stage.edges || [], explicitOfficialRoundKey);
+    const mainIds = new Set(main.map(match => match.__official_id));
+    const model = assignOfficialRoundKeys(main, fullModel.edges.filter(edge => mainIds.has(edge.match_external_id) && mainIds.has(edge.source_external_match_id)));
+    stage.graphDiagnostics = fullModel.diagnostics;
+    const metrics = officialCardMetrics();
+    const lane = match => {
+        const side = bracketKind(match)?.side;
+        return side === 'grand' ? 'final' : side === 'upper' || side === 'lower' ? side : 'other';
+    };
+    const layout = bracketGraphEngine.layout(model, metrics, lane, officialMatchCompare);
+    const labels = { upper: '胜者组', lower: '败者组', other: '其他轮次' };
+    const laneLabels = [...layout.bands].filter(([key]) => key !== 'final').map(([key, band]) =>
+        '<span class="bracket-lane-tag ' + key + '" style="top:' + Math.max(0, band.top - 24) + 'px">' + labels[key] + '</span>').join('');
+    return '<div class="official-bracket-clean bracket-double" aria-label="双败赛程图">'
+        + officialLaneHtml('', main, layout, metrics, null,
+            column => column.matches.every(match => bracketKind(match)?.side === 'grand') ? '总决赛' : `第 ${Math.min(...column.matches.map(match => match.__round_key)) + 1} 轮`)
+            .replace('<svg class="pb2-lines"', laneLabels + '<svg class="pb2-lines"')
+        + officialExtrasSection('3rd Place', medals, metrics) + '</div>';
+}
+
+function stageStartTime(stage) {
+    const list = stage && stage.groups
+        ? stage.groups.flatMap(group => group.matches || [])
+        : (stage && stage.matches) || [];
+    const times = list.filter(match => match.match_time).map(match => new Date(match.match_time).getTime()).filter(Number.isFinite);
+    if (times.length) return Math.min(...times);
+    const nodes = (stage && stage.officialMatches) || [];
+    const nodeTimes = nodes.filter(match => match.match_time).map(match => new Date(match.match_time).getTime()).filter(Number.isFinite);
+    return nodeTimes.length ? Math.min(...nodeTimes) : Number.MAX_SAFE_INTEGER;
+}
+
+// 官方阶段优先：有 nodes/edges 时按真实拓扑建阶段；没有官方数据的阶段回退到旧的推断模型。
+function buildTournamentStagesWithOfficial(matches, officialStages, options = {}) {
+    const source = uniqueMatches(matches || []);
+    const official = Array.isArray(officialStages) ? officialStages.filter(stage => stage && stage.external_id) : [];
+    if (!official.length) return buildTournamentStages(source);
+
+    const localById = new Map(source.map(match => [String(match.id), match]));
+    const localByExternal = new Map();
+    const localByStage = new Map();
+    for (const match of source) {
+        if (match.external_id) localByExternal.set(String(match.external_id), match);
+        if (match.stage_external_id) {
+            const key = String(match.stage_external_id);
+            if (!localByStage.has(key)) localByStage.set(key, []);
+            localByStage.get(key).push(match);
+        }
+    }
+
+    const stages = [];
+    const covered = new Set();
+    for (const officialStage of official) {
+        const externalId = String(officialStage.external_id);
+        let localMatches = localByStage.get(externalId) || [];
+        if (!localMatches.length && officialStage.name) {
+            localMatches = source.filter(match => !match.stage_external_id && match.stage_name === officialStage.name);
+        }
+        for (const match of localMatches) covered.add(String(match.id));
+        const officialMatches = (officialStage.nodes || []).map(node => {
+            const local = localById.get(String(node.local_match_id))
+                || localByExternal.get(String(node.external_match_id))
+                || localByExternal.get(String(node.panda_match_id));
+            return officialNodeToMatch(node, local, externalId, options.gameType);
+        });
+        const matchedIds = new Set(officialMatches.filter(match => match.id != null).map(match => String(match.id)));
+        const unlinked = localMatches.filter(match => !matchedIds.has(String(match.id)));
+        for (const match of unlinked) officialMatches.push({ ...match, __official_id: match.external_id || `local:${match.id}`, __unlinked: true });
+        const edges = officialStage.edges || [];
+        const label = officialStage.name || (localMatches[0] && localMatches[0].stage_name) || `Stage ${externalId}`;
+        const kinds = officialMatches.map(match => bracketKind(match)).filter(Boolean);
+        const hasUpper = kinds.some(kind => kind.side === 'upper');
+        const hasLower = kinds.some(kind => kind.side === 'lower');
+        const localKinds = localMatches.map(match => bracketKind(match)).filter(Boolean);
+        const localHasUpper = localKinds.some(kind => kind.side === 'upper');
+        const localHasLower = localKinds.some(kind => kind.side === 'lower');
+        const swissSource = localMatches.length ? localMatches : officialMatches;
+        const swiss = looksLikeSwissStage(swissSource, label);
+        const gsl = isGslGroupStage(officialMatches.length ? officialMatches : localMatches);
+        // 瑞士轮优先用官方 nodes 补全未来轮次（例如 PGL 只有 R1-R3 在近端窗口，
+        // 但官方 bracket 返回了完整 33 场），再靠骨架把 TBD 对阵放进正确战绩桶。
+        const roundSource = officialMatches.length ? officialMatches : swissSource;
+        let type;
+        if (hasUpper && hasLower) type = 'official-double';
+        else if (gsl) type = 'gsl-group';
+        else if (swiss) type = 'swiss-stage';
+        else if (edges.length && officialMatches.length) type = 'official-single';
+        else if (officialMatches.length && officialStage.has_bracket) type = 'official-single';
+        else if (localHasUpper && localHasLower) type = 'double-elim-bracket';
+        else if (localMatches.length && isPlayoffStage({ label, matches: localMatches })) type = 'playoff-stage';
+        else if (localMatches.length || officialMatches.length) type = 'group-stage';
+        else continue;
+        const roundGroups = roundGroupsFromMatches(roundSource);
+        stages.push({
+            key: `official-${externalId}`,
+            external_id: externalId,
+            label,
+            type,
+            has_bracket: officialStage.has_bracket,
+            bracket_synced_at: officialStage.bracket_synced_at,
+            bracket_error: officialStage.bracket_error,
+            matches: localMatches,
+            // 统计只算本地已入库比赛；官方 nodes 可能包含尚未进入同步窗口的未来场次。
+            metricsMatches: localMatches,
+            officialMatches,
+            unlinkedCount: (officialStage.nodes || []).length ? unlinked.length : 0,
+            edges,
+            graphDiagnostics: bracketGraphEngine.graph(officialMatches, edges, explicitOfficialRoundKey).diagnostics,
+            groups: type === 'swiss-stage' && roundGroups.length ? roundGroups : undefined
+        });
+    }
+
+    const leftovers = source.filter(match => !covered.has(String(match.id)));
+    if (leftovers.length) stages.push(...buildBracketModel(leftovers).stages);
+    return stages.sort((a, b) => stageStartTime(a) - stageStartTime(b) || String(a.key).localeCompare(String(b.key)));
 }
 
 function roundGroupsFromMatches(matches) {
@@ -1139,16 +1724,16 @@ function roundGroupsFromMatches(matches) {
     }));
 }
 
-// 主页折叠面板复用：给定一届赛事的扁平 matches，产出所有 stage 的赛程图 HTML（含 stage 标题）。
+// 主页折叠面板复用：给定一届赛事的扁平 matches + 官方阶段数据，产出所有 stage 的赛程图 HTML。
 // 无副作用；由 app.js 调用。逐 stage 复刻 tournaments.js 里 stageSection 的图渲染分支。
-function tournamentBracketSections(matches) {
-    const stages = buildTournamentStages(matches || []);
+function tournamentBracketSections(matches, officialStages, options = {}) {
+    const stages = buildTournamentStagesWithOfficial(matches || [], officialStages, options);
     return stages.map(group => {
         let diagram = '';
         if (group.groups) {
             diagram = stageDiagram(group);
         } else {
-            const roundGroups = roundGroupsFromMatches(group.matches || []);
+            const roundGroups = roundGroupsFromMatches(group.matches || group.officialMatches || []);
             diagram = stageDiagram(group, roundGroups);
         }
         if (!diagram) return '';
@@ -1165,11 +1750,18 @@ if (typeof module !== 'undefined' && module.exports) {
         bracketTeamState,
         buildBracketModel,
         buildTournamentStages,
+        buildTournamentStagesWithOfficial,
+        detectSwiss16,
         doubleElimRounds,
+        isGslGroupStage,
         isTbdMatch,
+        looksLikeSwissStage,
         matchesByBracketKind,
         playoffGroupsFromMatches,
         playoffRoundLabel,
-        stageMatches
+        roundGroupsFromMatches,
+        stageDiagram,
+        stageMatches,
+        swissRoundBuckets
     };
 }

@@ -49,8 +49,8 @@ function calculatePoints(prediction, match) {
 
 function possibleScores(format) {
     if (format === 'BO1') return [[1, 0], [0, 1]];
-    if (format === 'BO5') return [[3, 0], [3, 1], [3, 2], [0, 3], [1, 3], [2, 3]];
-    return [[2, 0], [2, 1], [0, 2], [1, 2]];
+    if (format === 'BO5') return [[3, 0], [3, 1], [3, 2], [2, 3], [1, 3], [0, 3]];
+    return [[2, 0], [2, 1], [1, 2], [0, 2]];
 }
 
 module.exports = { maxScore, isValidScore, calculatePoints, possibleScores };
