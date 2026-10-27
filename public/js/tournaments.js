@@ -121,7 +121,7 @@ function renderBrandChips() {
 }
 
 function renderArchiveList() {
-    const rows = filteredTournaments();
+    const rows = tournamentOrder.sortTournaments(filteredTournaments());
     if (tournamentCountEl) tournamentCountEl.textContent = `${rows.length} 个赛事`;
     tournamentsEl.innerHTML = rows.map(tournamentCard).join('') || '<div class="ar-empty"><h3>暂无赛事</h3><p>调整游戏、级别或厂牌筛选试试。</p></div>';
     applyViewMode();
@@ -387,11 +387,11 @@ function tournamentCard(tournament) {
     const predictions = tournament.prediction_count || 0;
     const ongoing = tournament.ongoing_count || 0;
     const upcoming = tournament.upcoming_count || 0;
-    const isDone = total > 0 && finished >= total;
+    const status = tournamentOrder.tournamentStatus(tournament);
+    const isDone = status === 'finished';
     const progress = total ? Math.round((finished / total) * 100) : 0;
-    // 已开赛即视为进行中：暂无直播场次时也不能降级为「筹备中」
-    const hasStarted = Boolean(tournament.begin_at) && new Date(tournament.begin_at).getTime() <= Date.now();
-    const isLive = !isDone && (ongoing > 0 || (hasStarted && total > 0));
+    // 排序和卡片状态使用相同规则。
+    const isLive = status === 'ongoing';
     const stateLabel = isLive ? '进行中' : isDone ? '已结束' : '筹备中';
     const stateClass = isLive ? 'live' : isDone ? 'done' : 'wait';
     return `<article class="ar-card ${tournament.game_type} ${stateClass}" data-id="${tournament.id}" onclick="enterTournament(${tournament.id})" tabindex="0" role="button" aria-label="查看 ${escapeHtml(tournament.name)}">

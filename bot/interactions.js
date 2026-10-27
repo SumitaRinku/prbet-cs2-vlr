@@ -1,7 +1,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const { splitMessage } = require('./core');
+const { splitMatchMessage, messageMatchId } = require('./core');
 
 function verifySignature(body, signature, secret) {
     const expected = Buffer.from(`sha1=${crypto.createHmac('sha1', secret).update(body).digest('hex')}`);
@@ -9,21 +9,28 @@ function verifySignature(body, signature, secret) {
     return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
-function findReminderMatch(event, reminderState) {
+function findReplyMatch(event, reminderState, interactionState) {
     const reply = event.message?.find(segment => segment?.type === 'reply');
-    if (!reply || !reminderState?.jobs) return null;
+    if (!reply) return null;
     const replyId = String(reply.data?.id || '');
-    if (!/^\d+$/.test(replyId)) return null;
+    if (!/^-?\d{1,20}$/.test(replyId)) return null;
     const scoreText = event.message.filter(segment => segment?.type === 'text').map(segment => segment.data?.text || '').join('').trim();
     const score = /^(\d{1,2})\s*[:：-]\s*(\d{1,2})$/.exec(scoreText);
     if (!score) return null;
-    const job = Object.values(reminderState.jobs).find(candidate => candidate.group === String(event.group_id)
-        && candidate.kind === 'reminder' && candidate.watched?.[0]?.id != null
-        && candidate.parts?.some(part => String(part.messageId) === replyId));
-    return job ? { matchId: job.watched[0].id, score: `${Number(score[1])}:${Number(score[2])}` } : null;
+    const ids = new Set();
+    for (const job of [...Object.values(reminderState?.jobs || {}), ...Object.values(interactionState?.deliveries || {})]) {
+        if (String(job.group) !== String(event.group_id)) continue;
+        for (const part of job.parts || []) {
+            if (part.status !== 'sent' || String(part.messageId) !== replyId) continue;
+            const legacy = ['reminder', 'change'].includes(job.kind) && job.watched?.length === 1 ? job.watched[0].id : null;
+            const id = Object.hasOwn(part, 'matchId') ? part.matchId : messageMatchId(part.text, job.matchIds || []) ?? legacy;
+            if (/^[1-9]\d{0,14}$/.test(String(id))) ids.add(String(id));
+        }
+    }
+    return ids.size === 1 ? { matchId: [...ids][0], score: `${Number(score[1])}:${Number(score[2])}` } : null;
 }
 
-function parseEvent(event, config, now = Date.now(), reminderState) {
+function parseEvent(event, config, now = Date.now(), reminderState, interactionState) {
     const group = String(event.group_id || ''), qq = String(event.user_id || '');
     if (!config.commandGroupIds.includes(group) || qq === String(event.self_id)) return null;
     if (!Number.isFinite(event.time) || Math.abs(now - event.time * 1000) > 600000) return null;
@@ -33,12 +40,12 @@ function parseEvent(event, config, now = Date.now(), reminderState) {
     if (event.post_type !== 'message' || event.message_type !== 'group'
         || !Number.isFinite(event.time) || Math.abs(now - event.time * 1000) > 600000) return null;
     if (!Array.isArray(event.message)) return null;
-    // Ignore non-text content except a direct @ of the bot or a reply to a sent reminder.
+    // Quoted content is never trusted: resolve the ID only from our own successful deliveries.
     if (event.message.some(s => s.type !== 'text' && s.type !== 'reply'
         && !(s.type === 'at' && String(s.data?.qq) === String(event.self_id)))) return null;
     const text = event.message.filter(s => s.type === 'text').map(s => s.data?.text || '').join('').trim();
     if (!/^-?\d{1,20}$/.test(String(event.message_id))) return null;
-    const replyPrediction = findReminderMatch(event, reminderState);
+    const replyPrediction = findReplyMatch(event, reminderState, interactionState);
     const match = /^\/prbet(?:\s+(.+))?$/is.exec(text);
     if (!replyPrediction && !match) return null;
     const command = replyPrediction ? `竞猜 ${replyPrediction.matchId} ${replyPrediction.score}` : (match[1] || '帮助').trim();
@@ -119,7 +126,7 @@ async function startInteractions(config, file, { saveState, sendMessage, request
             }
             const body = Buffer.concat(chunks);
             if (!verifySignature(body, req.headers['x-signature'], config.eventSecret)) { res.writeHead(401).end(); return; }
-            const command = parseEvent(JSON.parse(body.toString('utf8')), config, now(), reminderState);
+            const command = parseEvent(JSON.parse(body.toString('utf8')), config, now(), reminderState, state);
             if (!command) { res.writeHead(200).end('{}'); return; }
             const key = `${command.group}:${command.qq}:${command.request_id}`;
             if (!state.inbox[key]) {
@@ -137,9 +144,9 @@ async function startInteractions(config, file, { saveState, sendMessage, request
     server.requestTimeout = 10000;
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(config.eventPort, '127.0.0.1', resolve); });
 
-    function queue(key, group, text, source) {
-        if (!state.deliveries[key]) state.deliveries[key] = { group, source, createdAt: now(),
-            parts: splitMessage(text).map(text => ({ text, status: 'pending', attempts: 0 })) };
+    function queue(key, group, text, source, matchIds = []) {
+        if (!state.deliveries[key]) state.deliveries[key] = { group, source, matchIds, createdAt: now(),
+            parts: splitMatchMessage(text, matchIds).map(part => ({ ...part, status: 'pending', attempts: 0 })) };
     }
 
     async function initializeBaselines() {
@@ -175,7 +182,8 @@ async function startInteractions(config, file, { saveState, sendMessage, request
                 const result = await request(config, 'command', { group_id: command.group, qq_id: command.qq,
                     request_id: command.request_id, text: command.text });
                 if (typeof result.text !== 'string') throw new Error('指令响应格式错误');
-                if (!command.silent) queue(`reply:${key}`, command.group, `QQ ${command.qq}：\n${result.text}`, 'command');
+                const link = command.text === '帮助' && config.siteUrl ? `\n\n网站：${config.siteUrl}` : '';
+                if (!command.silent) queue(`reply:${key}`, command.group, `QQ ${command.qq}：\n${result.text}${link}`, 'command', result.match_ids || []);
                 command.done = true; delete command.text; save();
             } catch (error) {
                 command.attempts++; command.retryAt = now() + Math.min(60000, 2000 * 2 ** Math.min(command.attempts, 5));
@@ -259,7 +267,7 @@ async function startInteractions(config, file, { saveState, sendMessage, request
             if (!config.commandGroupIds.includes(group)) { delete pending[group]; continue; }
             if (buffer.events.length < 5 && now() - buffer.firstAt < 10000) continue;
             queue(`settlement:${group}:${buffer.events.map(e => e.id).join('.')}`, group,
-                buffer.events.length === 1 ? settlementText(buffer.events[0]) : mergedSettlementText(buffer.events), 'settlement');
+                buffer.events.length === 1 ? settlementText(buffer.events[0]) : mergedSettlementText(buffer.events), 'settlement', buffer.events.map(event => event.match.id));
             delete pending[group];
         }
         await sendReplies(); // Commands received while polling take precedence too.

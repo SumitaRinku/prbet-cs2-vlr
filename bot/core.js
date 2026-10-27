@@ -53,12 +53,30 @@ function splitMessage(text, max = 1200) {
     return parts.length > 1 ? parts.map((part, i) => `（${i + 1}/${parts.length}）\n${part}`) : parts;
 }
 
+// Match only IDs present in the trusted payload and visibly identified in this exact message part.
+function messageMatchId(text, matchIds = []) {
+    const allowed = new Set(matchIds.map(String));
+    const found = new Set([...String(text).matchAll(/(?:^#|^【[^\n】]*· #|^竞猜已(?:提交|修改)：#|^已取消 #)([1-9]\d{0,14})(?=\s|】|$)/gm)]
+        .map(match => match[1]));
+    return found.size === 1 && allowed.has([...found][0]) ? Number([...found][0]) : null;
+}
+
+function splitMatchMessage(text, matchIds = []) {
+    const multiple = new Set(matchIds.map(String)).size > 1;
+    return splitMessage(text).map((text, index) => {
+        const content = text.replace(/^（\d+\/\d+）\n/, '');
+        // A continuation can contain the tail of another match before its first visible ID.
+        const startsMatch = /^(?:#[1-9]\d*\s|【[^\n】]*· #[1-9]\d*】)/.test(content);
+        return { text, matchId: index && multiple && !startsMatch ? null : messageMatchId(text, matchIds) };
+    });
+}
+
 function fixtureLine(m, now, reportDay) {
     const time = Date.parse(m.match_time);
     const nextDay = reportDay !== undefined && midnight(time) > reportDay;
     const status = m.status === 'finished' ? ' · 已结束' : m.status === 'ongoing' ? ' · 进行中'
         : time <= now ? ' · 已过计划时间' : '';
-    return `${nextDay ? '次日 ' : ''}${label(time)}  ${versus(m)} · ${m.format}${status}`;
+    return `#${m.id} ${nextDay ? '次日 ' : ''}${label(time)}  ${versus(m)} · ${m.format}${status}`;
 }
 
 function groupedFixtures(matches, now, day) {
@@ -104,7 +122,7 @@ function dailyReport(feed, config, now, day = midnight(now)) {
     for (const group of resultGroups.values()) {
         lines.push('', group.name);
         for (const m of group.matches) {
-            lines.push(`${clean(m.team1_name)} ${m.team1_score}:${m.team2_score} ${clean(m.team2_name)}${m.is_forfeit ? '（弃权）' : ''}`);
+            lines.push(`#${m.id} ${clean(m.team1_name)} ${m.team1_score}:${m.team2_score} ${clean(m.team2_name)}${m.is_forfeit ? '（弃权）' : ''}`);
         }
     }
     if (!finished.length) lines.push('暂无赛果');
@@ -121,8 +139,7 @@ function dailyReport(feed, config, now, day = midnight(now)) {
     }
     const unknown = matches.filter(m => m.time_confirmed !== 1 && m.status === 'upcoming' && between(m, start, end)).length;
     if (unknown) lines.push(`另有 ${unknown} 场时间待定`);
-    lines.push('', `${config.siteUrl}/tournaments.html`);
-    return { text: lines.join('\n'), watched: today.filter(m => Date.parse(m.match_time) > now).map(snapshot) };
+    return { text: lines.join('\n'), matchIds: matches.map(m => m.id), watched: today.filter(m => Date.parse(m.match_time) > now).map(snapshot) };
 }
 
 function plan(feed, config, now, watched = {}) {
@@ -144,21 +161,20 @@ function plan(feed, config, now, watched = {}) {
             && remaining > 0 && remaining <= config.reminderMinutes * 60000
             && m.team1_name !== 'TBD' && m.team2_name !== 'TBD') {
             jobs.push({ key: `reminder:${m.id}:${iso(time)}`, kind: 'reminder', expires: time,
-                watched: [snapshot(m)], text: [
+                matchIds: [m.id], watched: [snapshot(m)], text: [
                     `【即将开赛 · 约 ${Math.ceil(remaining / 60000)} 分钟后】`, title(m),
                     `#${m.id} ${versus(m)} · ${m.format} · ${label(time)}`,
                     ...(m.betting_enabled ? (config.commandsEnabled ? [
                         `回复比分或发送 /prbet 竞猜 ${m.id} ${m.format === 'BO1' ? '1:0' : m.format === 'BO5' ? '3:1' : '2:1'}`
-                    ] : ['可在网站竞猜']) : ['竞猜未开放']),
-                    `${config.siteUrl}/tournaments.html?tournament=${m.tournament_id}#match-row-${m.id}`
+                    ] : ['可在网站竞猜']) : ['竞猜未开放'])
                 ].join('\n') });
         }
     }
     const day = midnight(now), weeklyDue = at(day, config.weeklyTime);
     if (config.weeklyEnabled && new Date(day + OFFSET).getUTCDay() === 0 && now >= weeklyDue && now <= weeklyDue + 2 * 3600000) {
-        jobs.push({ key: `weekly:${dateKey(day)}`, kind: 'weekly', expires: weeklyDue + 2 * 3600000, watched: [],
+        jobs.push({ key: `weekly:${dateKey(day)}`, kind: 'weekly', expires: weeklyDue + 2 * 3600000, watched: [], matchIds: matches.map(m => m.id),
             text: ['【未来七天赛事预告】',
-                ...previewLines(matches, now, now + 7 * DAY, now), '', `${config.siteUrl}/tournaments.html`].join('\n') });
+                ...previewLines(matches, now, now + 7 * DAY, now)].join('\n') });
     }
     const byId = new Map(matches.map(m => [String(m.id), m]));
     for (const [id, old] of Object.entries(watched)) {
@@ -171,12 +187,11 @@ function plan(feed, config, now, watched = {}) {
         if (!changed) continue;
         const state = { cancelled: '已取消', postponed: '已延期', unavailable: '已下架或停止展示' }[next.status];
         jobs.push({ key: `change:${id}:${fingerprint(next)}`, kind: 'change', expires: now + 2 * 3600000,
-            watched: [next], text: ['【赛程更新】', title(old), `${old.team1_name} vs ${old.team2_name}`,
+            matchIds: [next.id], watched: [next], text: ['【赛程更新】', title(old), `#${old.id} ${old.team1_name} vs ${old.team2_name}`,
                 `原定：${label(Date.parse(old.match_time))}`,
-                state || (next.time_confirmed !== 1 ? '开赛时间待确认' : `现为：${label(Date.parse(next.match_time))}  ${next.team1_name} vs ${next.team2_name}`),
-                `${config.siteUrl}/tournaments.html`].join('\n') });
+                state || (next.time_confirmed !== 1 ? '开赛时间待确认' : `现为：${label(Date.parse(next.match_time))}  ${next.team1_name} vs ${next.team2_name}`)].join('\n') });
     }
     return jobs;
 }
 
-module.exports = { DAY, iso, dateKey, midnight, bounds, dailyDue, freshness, splitMessage, dailyReport, plan };
+module.exports = { DAY, iso, dateKey, midnight, bounds, dailyDue, freshness, splitMessage, messageMatchId, splitMatchMessage, dailyReport, plan };

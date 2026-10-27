@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
 const { setTimeout: sleep } = require('node:timers/promises');
-const { DAY, iso, bounds, freshness, splitMessage, dailyReport, plan } = require('./core');
+const { DAY, iso, bounds, freshness, splitMessage, splitMatchMessage, dailyReport, plan } = require('./core');
 
 function readConfig(file) {
     const config = { games: ['cs2', 'valorant'], dailyTime: '12:00', dayStart: '06:00', earlyMinutes: 10,
@@ -126,7 +126,7 @@ async function tick(config, state, file, dependencies = {}) {
         for (const candidate of candidates) {
             const key = `${group}|${candidate.key}`;
             if (!state.jobs[key]) state.jobs[key] = { ...candidate, group, createdAt: now,
-                parts: splitMessage(candidate.text).map(text => ({ text, status: 'pending', attempts: 0 })) };
+                parts: splitMatchMessage(candidate.text, candidate.matchIds).map(part => ({ ...part, status: 'pending', attempts: 0 })) };
         }
         saveState(file, state); // Freeze each report and all its parts before the first send.
         for (const [key, job] of Object.entries(state.jobs)) {
@@ -135,8 +135,9 @@ async function tick(config, state, file, dependencies = {}) {
             // Keep changed schedules/reminders current while they are still wholly unsent.
             const latest = candidates.find(candidate => `${group}|${candidate.key}` === key);
             if (latest && ['reminder', 'change'].includes(job.kind) && job.parts.every(part => ['pending', 'failed'].includes(part.status))) {
-                const texts = splitMessage(latest.text);
-                job.parts = texts.map((text, i) => ({ ...job.parts[i], text, status: job.parts[i]?.status || 'pending', attempts: job.parts[i]?.attempts || 0 }));
+                const parts = splitMatchMessage(latest.text, latest.matchIds);
+                job.parts = parts.map((part, i) => ({ ...job.parts[i], ...part, status: job.parts[i]?.status || 'pending', attempts: job.parts[i]?.attempts || 0 }));
+                job.matchIds = latest.matchIds;
                 job.watched = latest.watched;
             }
             for (const part of job.parts) {

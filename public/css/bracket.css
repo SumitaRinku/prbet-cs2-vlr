@@ -177,7 +177,10 @@
     .bracket-view .pb2-team strong { font-size:12px!important; }
     .bracket-view .pb2-team img,.bracket-view .pb2-team .placeholder { width:18px!important;height:18px!important; }
     .bracket-view .swiss-bracket-clean { grid-template-columns:repeat(var(--swiss-round-count,5),152px)!important;gap:16px; }
-    .bracket-view .swiss-bracket-clean .sw2-side b { display:block!important;font-size:10px; }
+    /* 移动端瑞士轮只保留队标与比分：隐藏 vs 卡片及晋级/淘汰区的队名 */
+    .bracket-view .swiss-bracket-clean .sw2-side b,
+    .bracket-view .swiss-bracket-clean .sw2-result-team b { display:none!important; }
+    .bracket-view .swiss-bracket-clean .sw2-result-team { grid-template-columns:1fr!important;justify-items:center!important;padding:0!important; }
     .bracket-view .sw2-logo { flex-basis:18px;width:18px;height:18px; }
     .bracket-view .sw2-logo img,.bracket-view .sw2-logo .placeholder { width:17px!important;height:17px!important; }
 }
@@ -213,10 +216,11 @@
     .bracket-swiss .sw2-side { gap:0!important; }
     .bracket-swiss .sw2-vs { width:17px;font-size:8px!important; }
     .bracket-swiss .sw2-logo { width:clamp(14px,4.5cqw,20px)!important;height:clamp(14px,4.5cqw,20px)!important;flex-basis:clamp(14px,4.5cqw,20px)!important; }
-    .bracket-swiss .sw2-logo img,.bracket-swiss .sw2-logo .placeholder,.bracket-swiss .sw2-logo .tbd-shield { width:100%!important;height:100%!important;padding:0!important; }
+    /* Percent heights in an auto-sized grid track can follow the image's intrinsic aspect ratio. */
+    .bracket-swiss .sw2-logo img,.bracket-swiss .sw2-logo .placeholder,.bracket-swiss .sw2-logo .tbd-shield { width:clamp(14px,4.5cqw,20px)!important;height:clamp(14px,4.5cqw,20px)!important;padding:1px!important;object-fit:contain; }
     .bracket-swiss .sw2-result-bucket { padding:3px 1px!important; }
     .bracket-swiss .sw2-result-bucket .sw2-label { font-size:8px!important;line-height:12px!important;letter-spacing:-.3px;white-space:nowrap; }
     .bracket-swiss .sw2-result-teams { gap:2px!important; }
     .bracket-swiss .sw2-result-team { height:18px!important;min-height:18px!important; }
-    .bracket-swiss .sw2-result-team img,.bracket-swiss .sw2-result-team .placeholder,.bracket-swiss .sw2-result-team .tbd-shield { width:15px!important;height:15px!important; }
+    .bracket-swiss .swiss-bracket-clean .sw2-result-team img,.bracket-swiss .swiss-bracket-clean .sw2-result-team .placeholder,.bracket-swiss .swiss-bracket-clean .sw2-result-team .tbd-shield { width:15px!important;height:15px!important; }
 }

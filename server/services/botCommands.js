@@ -120,6 +120,7 @@ function runCommand(db, input, options = {}) {
     if (!idPattern.test(group) || !idPattern.test(qq) || !settings.groups.includes(group)) problem('本群未启用竞猜功能');
     if (!/^[\w:.-]{1,120}$/.test(input.request_id || '') || typeof input.text !== 'string' || input.text.length > 200) problem('指令格式无效');
     const requestId = `${group}:${qq}:${input.request_id}`;
+    let matchIds = [];
     return db.transaction(() => {
         const previous = db.prepare('SELECT response FROM bot_command_receipts WHERE request_id=?').get(requestId);
         if (previous) return JSON.parse(previous.response);
@@ -134,8 +135,9 @@ function runCommand(db, input, options = {}) {
         } catch (error) {
             if (!error.expected) throw error;
             text = error.message;
+            matchIds = [];
         }
-        const response = { text };
+        const response = { text, match_ids: [...new Set(matchIds)] };
         db.prepare('INSERT INTO bot_command_receipts VALUES(?,?,?,?,?,?)').run(requestId, group, qq, action || '', JSON.stringify(response), now);
         db.prepare('DELETE FROM bot_command_receipts WHERE created_at<?').run(now - 30 * 86400000);
         return response;
@@ -154,6 +156,7 @@ function runCommand(db, input, options = {}) {
             '赛程 [cs2/valorant] [今天/明天] [页码]',
             '竞猜 / 修改 比赛ID 2:1',
             '取消 比赛ID',
+            '回复机器人单场比赛消息 + 比分，也可提交或修改竞猜',
             '我的 [待开赛/待结算/已结算] [cs2/valorant] [页码]',
             '',
             '▶ 管理员',
@@ -198,6 +201,7 @@ function runCommand(db, input, options = {}) {
             const { rows, footer } = queryPage(db,
                 'm.id,m.match_time,m.format,m.tournament_id,t.game_type,t.name tournament_name,a.name a,b.name b',
                 from, where, params, 'julianday(m.match_time),m.id', action, filter);
+            matchIds = rows.map(row => row.id);
             return rows.length ? `可竞猜赛程${filter.args ? ` · ${filter.args}` : ''}：\n\n`
                 + groupByTournament(rows, m => `#${m.id} ${beijingTime(m.match_time)} ${m.a} vs ${m.b} ${m.format}`) + footer
                 : '暂无可竞猜的比赛';
@@ -205,6 +209,7 @@ function runCommand(db, input, options = {}) {
         if (['开启竞猜', '关闭竞猜', '结算', '弃权'].includes(action)) {
             if (!settings.admins.includes(qq)) problem('需要配置的管理员 QQ 权限');
             const m = getMatch(db, args[0]);
+            matchIds = [m.id];
             if (action.endsWith('竞猜')) {
                 if (action === '开启竞猜' && (m.status !== 'upcoming' || !(Date.parse(m.match_time) > now) || !m.time_confirmed || m.team1_name === 'TBD' || m.team2_name === 'TBD')) problem('只能开启尚未开赛且对阵和时间已确认的比赛');
                 db.prepare('UPDATE matches SET betting_enabled=? WHERE id=?').run(action === '开启竞猜' ? 1 : 0, m.id);
@@ -246,14 +251,21 @@ function runCommand(db, input, options = {}) {
             const { rows, footer } = queryPage(db,
                 'p.*,m.tournament_id,m.match_time,m.status match_status,m.is_forfeit,t.game_type,t.name tournament_name,a.name a,b.name b',
                 from, where, params, filter.status === '待开赛' ? 'julianday(m.match_time),p.id' : 'p.id DESC', action, filter);
+            matchIds = rows.map(row => row.match_id);
             return `${binding.username} 的竞猜${filter.args ? ` · ${filter.args}` : ''}：\n\n`
                 + (rows.length ? groupByTournament(rows, p => `#${p.match_id} ${beijingTime(p.match_time)} ${p.a} ${p.predicted_team1_score}:${p.predicted_team2_score} ${p.b} · ${predictionState(p, now)}`) + footer : '暂无竞猜');
         }
-        if (action === '取消') return predict(db, binding.user_id, args[0], 0, 0, now, true);
+        if (action === '取消') {
+            const text = predict(db, binding.user_id, args[0], 0, 0, now, true);
+            matchIds = [Number(args[0])];
+            return text;
+        }
         if (['竞猜', '修改'].includes(action)) {
             const score = /^(\d):([0-9])$/.exec(args[1] || '');
             if (!score) problem('格式：/prbet 竞猜 比赛ID 2:1');
-            return predict(db, binding.user_id, args[0], Number(score[1]), Number(score[2]), now);
+            const text = predict(db, binding.user_id, args[0], Number(score[1]), Number(score[2]), now);
+            matchIds = [Number(args[0])];
+            return text;
         }
         return `未知指令「${action}」，发送 /prbet 帮助 查看全部用法`;
     }

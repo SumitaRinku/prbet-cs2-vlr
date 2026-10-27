@@ -33,16 +33,14 @@ Windows 端推送程序。只需要 Node.js 20+，无需 `npm install`，不复�
 昨日赛果
 
 CS2 · BLAST Open
-Alpha 2:1 Beta
+#122 Alpha 2:1 Beta
 1 场赛果待更新
 
 今日赛程
 
 CS2 · BLAST Open
-10/16 18:00  Alpha vs Beta · BO3
-次日 10/17 02:00  Gamma vs Delta · BO1
-
-https://example.com/tournaments.html
+#123 10/16 18:00  Alpha vs Beta · BO3
+#124 次日 10/17 02:00  Gamma vs Delta · BO1
 ```
 
 无赛果显示 `暂无赛果`；弃权显示 `Alpha 1:0 Beta（弃权）`；超出部分显示 `另有 N 场见网站`。今日无比赛时显示 `今日无比赛，近期赛程：` 及未来七天赛程，仍无则为 `未来七天暂无赛程`。时间未确认的比赛不列入，只提示 `另有 N 场时间待定`。
@@ -54,7 +52,6 @@ https://example.com/tournaments.html
 CS2 · BLAST Open
 #123 Alpha vs Beta · BO3 · 10/16 18:00
 回复比分或发送 /prbet 竞猜 123 2:1
-https://example.com/tournaments.html?tournament=123#match-row-123
 ```
 
 开赛时间即竞猜截止时间。第四行在启用群指令的群是上面这样，只接收提醒的群为 `可在网站竞猜`，比赛未开放竞猜时为 `竞猜未开放`。TBD、时间未确认、已开始、取消或延期的比赛不提醒。
@@ -64,13 +61,14 @@ https://example.com/tournaments.html?tournament=123#match-row-123
 ```text
 【赛程更新】
 CS2 · BLAST Open
-Alpha vs Beta
+#123 Alpha vs Beta
 原定：10/16 18:00
 现为：10/18 20:00  Alpha vs Gamma
-https://example.com/tournaments.html
 ```
 
 取消、延期、下架或时间重新未知时，最后一行状态分别为 `已取消`、`已延期`、`已下架或停止展示`、`开赛时间待确认`。
+
+网址仅在 `/prbet 帮助` 的回复中提供，日报、周报、临赛提醒和赛程更新不再重复附带。启用群指令的群可回复任意单场比赛消息并发送比分提交或修改预测，具体规则见 [COMMANDS.md](COMMANDS.md)。新版会持久化每条成功发送消息对应的单场比赛 ID；同时更新 `run.js`、`core.js`、`interactions.js` 和服务端 `botCommands.js`，保留原配置与 `data/`，无需数据库迁移。
 
 赛后结算：
 

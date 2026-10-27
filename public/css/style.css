@@ -944,7 +944,8 @@ html[data-theme=dark] .tier-badge.tier-top{background:rgba(227,179,65,.13);color
     .de-full-bracket .de-card{height:52px}
     .swiss-bracket-clean{width:100%!important;max-width:100%!important;grid-template-columns:repeat(var(--swiss-round-count,5),150px)!important;overflow-x:auto!important;overflow-y:hidden!important;-webkit-overflow-scrolling:touch}
     .swiss-bracket-clean .sw2-column{min-width:150px!important}
-    .swiss-bracket-clean .sw2-result-team b{display:block!important;font-size:11px!important}
+    /* 移动端瑞士轮保持纯队标，不显示队名（含晋级/淘汰区） */
+    .swiss-bracket-clean .sw2-side b,.swiss-bracket-clean .sw2-result-team b{display:none!important}
     .swiss-bracket-clean .sw2-match{grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr)!important;height:34px!important;padding:0 3px!important}
     /* vs 卡片队名一律隐藏（窄屏更需如此），logo 居中 */
     .swiss-bracket-clean .sw2-side{grid-template-columns:1fr!important;place-items:center!important;gap:0!important}
@@ -1284,9 +1285,9 @@ html[data-theme=dark] .admin-sync-badge.warn{color:#e0a458}
 }
 /* ICP 备案链接扩大点按区域 */
 .site-footer .icp-info a{display:inline-block;padding:6px 2px}
-/* iOS：输入框字号 <16px 聚焦时会触发页面自动放大，移动端统一 16px */
+/* iOS：文字输入框字号 <16px 聚焦时会触发页面自动放大。 */
 @media(max-width:760px){
-  input,select,textarea{font-size:16px!important}
+  input,textarea{font-size:16px!important}
 }
 /* 触控基础优化：去掉点击高亮闪烁、允许浏览器快速点按（禁用双击缩放延迟） */
 button,.button,a,input,select,label{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
@@ -1502,3 +1503,19 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   #userPanel > span{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #userPanel .theme-toggle{position:absolute;top:8px;right:10px;margin-left:0}
 }
+
+/* 首页手机筛选保持常用控件可见，同时减少首屏占高。 */
+@media(max-width:620px){
+  .home-browser-head{flex-direction:row;align-items:center;padding:8px 10px}
+  .home-browser-head .game-switch{width:auto;flex:1 1 auto;max-width:245px}
+  .home-browser-head .game-switch button{min-width:0;white-space:nowrap}
+  .match-status-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .status-filter:nth-child(-n+2){border-bottom:0}
+  .status-filter:nth-child(2){border-right:1px solid var(--border-color)}
+  .home-tournament-filter{grid-template-columns:auto minmax(0,1fr);align-items:center}
+  .home-tournament-filter .filter-label{border:0;padding:6px 10px}
+  .home-tournament-filter>select{width:calc(100% - 16px);margin:6px 8px}
+}
+/* 深色主题的普通状态颜色不应覆盖选中按钮文字。 */
+html[data-theme=dark] .status-filter.active,
+html[data-theme=dark] .status-filter.active:hover{background:#28618e;color:#fff}

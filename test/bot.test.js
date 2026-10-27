@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const { createRequire } = require('node:module');
 const express = require('express');
 const Database = require('better-sqlite3');
-const { dailyDue, dailyReport, freshness, plan, midnight, splitMessage } = require('../bot/core');
+const { dailyDue, dailyReport, freshness, plan, midnight, splitMessage, messageMatchId, splitMatchMessage } = require('../bot/core');
 const { tick, loadState, saveState, sendMessage } = require('../bot/run');
 const { createBotRouter } = require('../server/routes/bot');
 const { ensureBotSchema } = require('../server/config/bot-schema');
@@ -80,7 +80,7 @@ test('05:50 schedules the correct calendar report; stale past fixtures do not re
     assert.equal(plan(feed(excluded), config, now).filter(job => job.kind === 'reminder').length, 0);
 });
 
-test('reminders include match ID, start time, format-valid command and direct match link', () => {
+test('reminders include match ID, start time and format-valid command without repeated website links', () => {
     for (const [format, score] of [['BO1', '1:0'], ['BO3', '2:1'], ['BO5', '3:1']]) {
         const m = match(123, '2026-09-22T12:20:00+08:00', { format, betting_enabled: 1 });
         const reminder = plan(feed([m]), { ...config, commandsEnabled: true }, now).find(job => job.kind === 'reminder');
@@ -88,11 +88,39 @@ test('reminders include match ID, start time, format-valid command and direct ma
         assert.match(reminder.text, /BO\d · 09\/22 12:20/);
         assert.doesNotMatch(reminder.text, /竞猜截止|北京时间/);
         assert.ok(reminder.text.includes(`/prbet 竞猜 123 ${score}`));
-        assert.match(reminder.text, /tournament=1#match-row-123/);
+        assert.doesNotMatch(reminder.text, /https?:\/\//);
         const closed = plan(feed([{ ...m, betting_enabled: 0 }]), { ...config, commandsEnabled: true }, now).find(job => job.kind === 'reminder');
         assert.match(closed.text, /竞猜未开放/);
         assert.doesNotMatch(closed.text, /\/prbet 竞猜|回复比分/);
     }
+});
+
+test('daily, weekly and schedule updates omit URLs and identify visible matches for replies', () => {
+    const m = match(123, '2026-09-22T12:20:00+08:00');
+    const report = dailyReport(feed([m]), config, now);
+    assert.equal(messageMatchId(report.text, report.matchIds), 123);
+    assert.doesNotMatch(report.text, /https?:\/\//);
+    const changed = plan(feed([{ ...m, match_time: '2026-09-22T13:00:00+08:00' }]), config, now, { 123: m }).find(job => job.kind === 'change');
+    assert.equal(messageMatchId(changed.text, changed.matchIds), 123);
+    assert.doesNotMatch(changed.text, /https?:\/\//);
+    const sunday = stamp('2026-09-27T20:00:00+08:00');
+    const weekly = plan(feed([match(124, '2026-09-28T18:00:00+08:00')], sunday), config, sunday).find(job => job.kind === 'weekly');
+    assert.doesNotMatch(weekly.text, /https?:\/\//);
+    assert.equal(messageMatchId(weekly.text, weekly.matchIds), 124);
+});
+
+test('message-part match identity is unique, payload-backed and does not treat scores or continuations as IDs', () => {
+    assert.equal(messageMatchId('#1 Alpha vs Beta\n#2 Gamma vs Delta', [1, 2]), null);
+    assert.equal(messageMatchId('#1 Alpha vs Beta', [1, 2]), 1);
+    assert.equal(messageMatchId('#99 not in payload', [1]), null);
+    assert.equal(messageMatchId('alice：2:1 · +2 分', [1]), null);
+    assert.equal(messageMatchId('【比赛结算 · #1】\nAlpha 2:1 Beta', [1]), 1);
+    assert.equal(messageMatchId('（2/3）\n#2 Gamma vs Delta', [1, 2]), 2);
+    assert.equal(messageMatchId('#99 unexpected\n#1 actual', [1]), null);
+    const parts = splitMatchMessage('#1 A vs B\n' + '玩家：2:1 · +2 分\n'.repeat(90) + '#2 C vs D\n', [1, 2]);
+    const continued = parts.find(part => part.text.includes('#2 C vs D'));
+    assert.ok(continued.text.includes('玩家：'));
+    assert.equal(continued.matchId, null, 'continuation of match 1 plus match 2 is ambiguous');
 });
 
 test('reminder command instructions appear only in groups with commands enabled', async () => {

@@ -13,6 +13,7 @@ const { createBotRouter } = require('../server/routes/bot');
 const { createBotAccountRouter } = require('../server/routes/botAccount');
 const { parseEvent, verifySignature, settlementText, mergedSettlementText, startInteractions } = require('../bot/interactions');
 const { saveState, loadState, tick } = require('../bot/run');
+const { messageMatchId } = require('../bot/core');
 
 const now = Date.parse('2026-09-22T04:00:00Z');
 const group = '123456', otherGroup = '123457', qq = '234567', admin = '345678';
@@ -257,7 +258,7 @@ test('event parser ignores non-whitelisted, self, forged raw strings, stale even
 
 test('replying to a sent reminder converts a score into a prediction command', () => {
     const config = { commandGroupIds: [group] };
-    const reminderState = { jobs: { reminder: { group, kind: 'reminder', watched: [{ id: 1 }], parts: [{ messageId: '77' }] } } };
+    const reminderState = { jobs: { reminder: { group, kind: 'reminder', watched: [{ id: 1 }], parts: [{ messageId: '77', status: 'sent' }] } } };
     const parsed = parseEvent(event({ message: [
         { type: 'reply', data: { id: '77' } }, { type: 'text', data: { text: '2：1' } }
     ] }), config, now, reminderState);
@@ -265,6 +266,83 @@ test('replying to a sent reminder converts a score into a prediction command', (
     assert.equal(parseEvent(event({ message: [
         { type: 'reply', data: { id: '999' } }, { type: 'text', data: { text: '2:1' } }
     ] }), config, now, reminderState), null);
+});
+
+test('replies resolve single-match daily, change, command and settlement messages from successful same-group deliveries', () => {
+    const config = { commandGroupIds: [group] };
+    const reply = id => event({ message: [{ type: 'reply', data: { id } }, { type: 'text', data: { text: '0-2' } }] });
+    for (const kind of ['daily', 'weekly', 'change']) {
+        const jobs = { a: { group, kind, parts: [{ status: 'sent', messageId: '-77', matchId: 1 }] } };
+        assert.equal(parseEvent(reply('-77'), config, now, { jobs }).text, '竞猜 1 0:2');
+    }
+    for (const source of ['command', 'settlement']) {
+        const deliveries = { a: { group, source, parts: [{ status: 'sent', messageId: '77', matchId: 1 }] } };
+        assert.equal(parseEvent(reply('77'), config, now, null, { deliveries }).text, '竞猜 1 0:2');
+        deliveries.a.group = otherGroup;
+        assert.equal(parseEvent(reply('77'), config, now, null, { deliveries }), null);
+        deliveries.a.group = group;
+        for (const status of ['pending', 'failed', 'unknown', 'sending']) {
+            deliveries.a.parts[0].status = status;
+            assert.equal(parseEvent(reply('77'), config, now, null, { deliveries }), null);
+        }
+    }
+    const deliveries = { a: { group, source: 'command', matchIds: [1, 2], parts: [{ status: 'sent', messageId: '77', matchId: null, text: '#1 A vs B\n#2 C vs D' }] } };
+    assert.equal(parseEvent(reply('77'), config, now, null, { deliveries }), null);
+});
+
+test('single-match query and prediction receipts remain replyable after persistence, with server cutoff still enforced', () => {
+    const { db, command, bind } = database();
+    try {
+        bind();
+        const schedule = command('赛程');
+        assert.deepEqual(schedule.match_ids, [1]);
+        const stored = JSON.parse(JSON.stringify({ deliveries: { query: { group, source: 'command', parts: [{
+            status: 'sent', messageId: '77', matchId: messageMatchId(schedule.text, schedule.match_ids)
+        }] } } }));
+        const reply = event({ message: [{ type: 'reply', data: { id: '77' } }, { type: 'text', data: { text: '2:1' } }] });
+        const parsed = parseEvent(reply, { commandGroupIds: [group] }, now, null, stored);
+        const submitted = command(parsed.text);
+        assert.match(submitted.text, /提交/);
+        assert.deepEqual(submitted.match_ids, [1]);
+        assert.equal(messageMatchId(submitted.text, submitted.match_ids), 1);
+        db.prepare("UPDATE matches SET status='ongoing'").run();
+        assert.match(command(parsed.text).text, /已开始/);
+        assert.equal(db.prepare('SELECT COUNT(*) n FROM predictions').get().n, 1);
+    } finally { db.close(); }
+});
+
+test('worker puts the website only in help and durably saves single-match command reply identity', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prbet-reply-context-'));
+    const file = path.join(dir, 'interactions.json');
+    const config = { siteUrl: 'https://example.test', commandGroupIds: [group], games: ['cs2'], eventSecret: '0123456789abcdef', eventPort: 0 };
+    const sent = [];
+    let current = now, worker;
+    try {
+        worker = await startInteractions(config, file, { saveState, now: () => current, sleep: async () => {},
+            sendMessage: async (c, g, text) => { sent.push(text); return { status: 'sent', messageId: String(100 + sent.length) }; },
+            request: async (c, pathname, body) => body
+                ? body.text === '帮助' ? { text: '使用说明', match_ids: [] } : { text: '竞猜已提交：#1 Alpha 2:1 Beta', match_ids: [1] }
+                : { cursor: 0, events: [] }
+        });
+        for (const [index, command] of ['帮助', '竞猜 1 2:1'].entries()) {
+            current += 3000;
+            const body = JSON.stringify(event({ message_id: 20 + index, time: current / 1000,
+                message: [{ type: 'text', data: { text: `/prbet ${command}` } }] }));
+            const response = await fetch(`http://127.0.0.1:${worker.server.address().port}/onebot`, { method: 'POST', body,
+                headers: { 'x-signature': 'sha1=' + crypto.createHmac('sha1', config.eventSecret).update(body).digest('hex') } });
+            assert.equal(response.status, 200);
+            await worker.pump();
+        }
+        assert.match(sent[0], /网站：https:\/\/example.test/);
+        assert.doesNotMatch(sent[1], /https?:\/\//);
+        const persisted = JSON.parse(fs.readFileSync(file, 'utf8'));
+        const parts = Object.values(persisted.deliveries).flatMap(job => job.parts);
+        assert.equal(parts.find(part => part.messageId === '102').matchId, 1);
+        const parsed = parseEvent(event({ time: current / 1000, message: [
+            { type: 'reply', data: { id: '102' } }, { type: 'text', data: { text: '0:2' } }
+        ] }), config, current, null, persisted);
+        assert.equal(parsed.text, '竞猜 1 0:2');
+    } finally { if (worker) await worker.close(); fs.rmSync(dir, { recursive: true }); }
 });
 
 test('worker durably receives signed events, deduplicates retries, queues settlement before cursor advance', async () => {
